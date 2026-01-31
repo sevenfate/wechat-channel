@@ -1,0 +1,126 @@
+﻿export const RuoYiChannelSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    enabled: { type: "boolean" },
+    defaultAccount: { type: "string" },
+    name: { type: "string" },
+    baseUrl: { type: "string" },
+    robotWxid: { type: "string" },
+    dmPolicy: { type: "string", enum: ["pairing", "allowlist", "open", "disabled"] },
+    allowFrom: {
+      type: "array",
+      items: { anyOf: [{ type: "string" }, { type: "number" }] },
+    },
+    groupMembers: {
+      type: "object",
+      additionalProperties: {
+        type: "array",
+        items: { anyOf: [{ type: "string" }, { type: "number" }] },
+      },
+    },
+    groupPolicy: { type: "string", enum: ["open", "disabled", "allowlist"] },
+    groups: {
+      type: "object",
+      additionalProperties: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          allow: { type: "boolean" },
+          enabled: { type: "boolean" },
+          requireMention: { type: "boolean" },
+        },
+      },
+    },
+    requireMention: { type: "boolean" },
+    blockStreaming: { type: "boolean" },
+    accounts: {
+      type: "object",
+      additionalProperties: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: { type: "string" },
+          enabled: { type: "boolean" },
+          baseUrl: { type: "string" },
+          robotWxid: { type: "string" },
+          dmPolicy: { type: "string", enum: ["pairing", "allowlist", "open", "disabled"] },
+          allowFrom: {
+            type: "array",
+            items: { anyOf: [{ type: "string" }, { type: "number" }] },
+          },
+          groupMembers: {
+            type: "object",
+            additionalProperties: {
+              type: "array",
+              items: { anyOf: [{ type: "string" }, { type: "number" }] },
+            },
+          },
+          groupPolicy: { type: "string", enum: ["open", "disabled", "allowlist"] },
+          groups: {
+            type: "object",
+            additionalProperties: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                allow: { type: "boolean" },
+                enabled: { type: "boolean" },
+                requireMention: { type: "boolean" },
+              },
+            },
+          },
+          requireMention: { type: "boolean" },
+          blockStreaming: { type: "boolean" },
+        },
+      },
+    },
+  },
+} as const;
+
+export const RuoYiChannelUiHints = {
+  enabled: { label: "启用通道", order: 10 },
+  baseUrl: { label: "WebSocket 地址", help: "示例：http://127.0.0.1:8080", order: 20 },
+  robotWxid: { label: "机器人 wxid", order: 30 },
+  dmPolicy: { label: "私聊策略", help: "allowlist 仅允许 allowFrom 中的用户。", order: 40 },
+  allowFrom: {
+    label: "私聊白名单",
+    help: "允许触发机器人的私聊 wxid 列表。",
+    placeholder: "wxid_user123",
+    order: 50,
+  },
+  groupPolicy: { label: "群聊策略", help: "allowlist 仅允许 groups 列表中的群。", order: 60 },
+  groups: {
+    label: "群聊白名单",
+    help: "键为群ID(chatroomId)。在此列出的群默认整群可触发。",
+    order: 70,
+  },
+  groupMembers: {
+    label: "群成员白名单",
+    help: "键为群ID(chatroomId)，值为允许触发的成员 wxid 列表（群不在白名单时生效）。",
+    order: 75,
+  },
+  requireMention: { label: "仅处理@消息", help: "群消息默认是否必须 @ 才处理。", order: 80 },
+  blockStreaming: { label: "分块实时回复", help: "启用后会分块发送消息。", order: 85 },
+  defaultAccount: { label: "默认账号", order: 90 },
+  accounts: { label: "账号列表", order: 100 },
+  name: { label: "账号名称", order: 15 },
+  "accounts.*.name": { label: "账号名称", order: 10 },
+  "accounts.*.enabled": { label: "启用账号", order: 20 },
+  "accounts.*.baseUrl": { label: "WebSocket 地址", order: 30 },
+  "accounts.*.robotWxid": { label: "机器人 wxid", order: 40 },
+  "accounts.*.dmPolicy": { label: "私聊策略", order: 50 },
+  "accounts.*.allowFrom": { label: "私聊白名单", order: 60 },
+  "accounts.*.groupPolicy": { label: "群聊策略", order: 70 },
+  "accounts.*.groups": { label: "群聊白名单", order: 80 },
+  "accounts.*.groupMembers": { label: "群成员白名单", order: 85 },
+  "accounts.*.requireMention": { label: "仅处理@消息", order: 90 },
+  "accounts.*.blockStreaming": { label: "分块实时回复", order: 95 },
+  "groups.*.allow": { label: "整群白名单", help: "允许该群所有成员触发。", order: 10 },
+  "groups.*.requireMention": { label: "必须@才处理", order: 20 },
+  "groups.*.enabled": { label: "启用该群", order: 30 },
+  "groupMembers.*": { label: "成员白名单", help: "该群允许触发的成员 wxid 列表。" },
+  "accounts.*.groups.*.allow": { label: "整群白名单", order: 10 },
+  "accounts.*.groups.*.requireMention": { label: "必须@才处理", order: 20 },
+  "accounts.*.groups.*.enabled": { label: "启用该群", order: 30 },
+  "accounts.*.groupMembers.*": { label: "成员白名单", help: "该群允许触发的成员 wxid 列表。" },
+} as const;

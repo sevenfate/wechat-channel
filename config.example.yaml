@@ -1,0 +1,50 @@
+﻿# RuoYi 微信通道配置示例
+# 配置文件路径：~/.openclaw/config.yaml
+
+channels:
+  wechat-channel:
+    enabled: true
+
+    # 默认账号配置（无需 accounts 时使用）
+    baseUrl: "ws://localhost:8080"
+    robotWxid: "wxid_robot123"
+
+    # 私聊访问策略：pairing | allowlist | open | disabled
+    dmPolicy: "allowlist"
+
+    # 私聊允许列表（dmPolicy=allowlist 或 pairing 时生效）
+    # 支持 "*" 表示允许所有人（仅在 dmPolicy=open 时推荐）
+    allowFrom:
+      - "wxid_user123"
+      - "wxid_user456"
+
+    # 群策略：open | disabled | allowlist
+    groupPolicy: "allowlist"
+
+    # 群允许列表（groupPolicy=allowlist 时生效）
+    groups:
+      "123456789@chatroom":
+        allow: true
+        requireMention: true
+      "987654321@chatroom":
+        allow: true
+        requireMention: false
+      "*":
+        requireMention: true
+
+    # 群成员白名单（群不在允许列表时，允许这些成员触发）
+    groupMembers:
+      "456789012@chatroom":
+        - "wxid_member123"
+
+    # 分块实时回复（建议开启）
+    blockStreaming: true
+
+    # 多账号配置（可选）
+    # accounts:
+    #   work:
+    #     baseUrl: "ws://localhost:8080"
+    #     robotWxid: "wxid_robot456"
+    #     dmPolicy: "allowlist"
+    #     allowFrom:
+    #       - "wxid_user789"
