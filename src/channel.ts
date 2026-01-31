@@ -18,15 +18,15 @@ import {
 } from "openclaw/plugin-sdk";
 
 import type {
-  RuoYiAccountConfig,
-  RuoYiChannelConfig,
-  RuoYiWechatMessage,
-  ResolvedRuoYiAccount,
-  RuoYiGroupConfig,
+  WechatAccountConfig,
+  WechatChannelConfig,
+  WechatMessage,
+  ResolvedWechatAccount,
+  WechatGroupConfig,
 } from "./types.js";
-import { RuoYiChannelSchema, RuoYiChannelUiHints } from "./config-schema.js";
-import { RuoYiWebSocketClient } from "./websocket.js";
-import { getRuoYiRuntime } from "./runtime.js";
+import { WechatChannelSchema, WechatChannelUiHints } from "./config-schema.js";
+import { WechatWebSocketClient } from "./websocket.js";
+import { getWechatRuntime } from "./runtime.js";
 
 const CHANNEL_ID = "wechat-channel" as const;
 const DEFAULT_TEXT_LIMIT = 2048;
@@ -34,17 +34,17 @@ const DEFAULT_TEXT_LIMIT = 2048;
 /**
  * WebSocket 客户端缓存
  */
-const wsClients = new Map<string, RuoYiWebSocketClient>();
+const wsClients = new Map<string, WechatWebSocketClient>();
 
-function getWebSocketClient(accountId: string): RuoYiWebSocketClient | undefined {
+function getWebSocketClient(accountId: string): WechatWebSocketClient | undefined {
   return wsClients.get(accountId);
 }
 
-function resolveChannelConfig(cfg: OpenClawConfig): RuoYiChannelConfig {
-  return (cfg.channels?.[CHANNEL_ID] ?? {}) as RuoYiChannelConfig;
+function resolveChannelConfig(cfg: OpenClawConfig): WechatChannelConfig {
+  return (cfg.channels?.[CHANNEL_ID] ?? {}) as WechatChannelConfig;
 }
 
-function listRuoYiAccountIds(cfg: OpenClawConfig): string[] {
+function listWechatAccountIds(cfg: OpenClawConfig): string[] {
   const channel = resolveChannelConfig(cfg);
   const accounts = channel.accounts;
   if (accounts && typeof accounts === "object") {
@@ -56,10 +56,10 @@ function listRuoYiAccountIds(cfg: OpenClawConfig): string[] {
   return [DEFAULT_ACCOUNT_ID];
 }
 
-function resolveDefaultRuoYiAccountId(cfg: OpenClawConfig): string {
+function resolveDefaultWechatAccountId(cfg: OpenClawConfig): string {
   const channel = resolveChannelConfig(cfg);
   if (channel.defaultAccount?.trim()) return channel.defaultAccount.trim();
-  const ids = listRuoYiAccountIds(cfg);
+  const ids = listWechatAccountIds(cfg);
   if (ids.includes(DEFAULT_ACCOUNT_ID)) return DEFAULT_ACCOUNT_ID;
   return ids[0] ?? DEFAULT_ACCOUNT_ID;
 }
@@ -67,7 +67,7 @@ function resolveDefaultRuoYiAccountId(cfg: OpenClawConfig): string {
 function resolveAccountConfig(
   cfg: OpenClawConfig,
   accountId: string,
-): RuoYiAccountConfig | undefined {
+): WechatAccountConfig | undefined {
   const channel = resolveChannelConfig(cfg);
   const accounts = channel.accounts;
   if (!accounts || typeof accounts !== "object") return undefined;
@@ -79,21 +79,21 @@ function resolveAccountConfig(
   return matchKey ? accounts[matchKey] : undefined;
 }
 
-function mergeRuoYiAccountConfig(cfg: OpenClawConfig, accountId: string): RuoYiAccountConfig {
+function mergeWechatAccountConfig(cfg: OpenClawConfig, accountId: string): WechatAccountConfig {
   const channel = resolveChannelConfig(cfg);
   const { accounts: _ignored, defaultAccount: _ignored2, ...base } = channel;
   const account = resolveAccountConfig(cfg, accountId) ?? {};
   return { ...base, ...account };
 }
 
-function resolveRuoYiAccount(params: {
+function resolveWechatAccount(params: {
   cfg: OpenClawConfig;
   accountId?: string | null;
-}): ResolvedRuoYiAccount {
+}): ResolvedWechatAccount {
   const accountId = normalizeAccountId(params.accountId);
   const channel = resolveChannelConfig(params.cfg);
   const baseEnabled = channel.enabled !== false;
-  const merged = mergeRuoYiAccountConfig(params.cfg, accountId);
+  const merged = mergeWechatAccountConfig(params.cfg, accountId);
   const accountEnabled = merged.enabled !== false;
   const enabled = baseEnabled && accountEnabled;
 
@@ -105,17 +105,17 @@ function resolveRuoYiAccount(params: {
   };
 }
 
-function normalizeRuoYiTarget(raw?: string | null): string | undefined {
+function normalizeWechatTarget(raw?: string | null): string | undefined {
   const trimmed = raw?.trim();
   if (!trimmed) return undefined;
-  return trimmed.replace(/^(wechat-channel|ruoyi-wechat|ry):/i, "");
+  return trimmed.replace(/^(wechat-channel|wechat|wx):/i, "");
 }
 
 function normalizeAllowEntry(entry: string | number): string {
   const raw = String(entry).trim();
   if (!raw) return "";
   if (raw === "*") return "*";
-  return normalizeRuoYiTarget(raw) ?? raw;
+  return normalizeWechatTarget(raw) ?? raw;
 }
 
 function normalizeAllowFromEntries(allowFrom?: Array<string | number>): string[] {
@@ -134,7 +134,7 @@ function isSenderAllowed(senderId: string, allowFrom: string[]): boolean {
 
 function isGroupAllowed(params: {
   groupId: string;
-  groups: Record<string, RuoYiGroupConfig>;
+  groups: Record<string, WechatGroupConfig>;
 }): boolean {
   const groups = params.groups ?? {};
   const keys = Object.keys(groups);
@@ -157,7 +157,7 @@ function isGroupAllowed(params: {
 }
 
 function resolveGroupRequireMention(params: {
-  account: ResolvedRuoYiAccount;
+  account: ResolvedWechatAccount;
   groupId?: string | null;
 }): boolean {
   const groups = params.account.config.groups ?? {};
@@ -175,7 +175,7 @@ function resolveGroupRequireMention(params: {
 }
 
 function resolveGroupMemberAllowFrom(params: {
-  account: ResolvedRuoYiAccount;
+  account: ResolvedWechatAccount;
   groupId?: string | null;
 }): string[] {
   const groupMembers = params.account.config.groupMembers ?? {};
@@ -191,14 +191,14 @@ function resolveGroupMemberAllowFrom(params: {
   return [];
 }
 
-async function deliverRuoYiReply(params: {
+async function deliverWechatReply(params: {
   cfg: OpenClawConfig;
   accountId: string;
   chatId: string;
   payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string };
   statusSink?: (patch: { lastOutboundAt?: number }) => void;
 }): Promise<void> {
-  const core = getRuoYiRuntime();
+  const core = getWechatRuntime();
   const wsClient = getWebSocketClient(params.accountId);
   if (!wsClient || !wsClient.isConnected()) {
     throw new Error("WebSocket 未连接");
@@ -241,14 +241,14 @@ async function deliverRuoYiReply(params: {
   }
 }
 
-async function handleRuoYiInboundMessage(params: {
-  msg: RuoYiWechatMessage;
+async function handleWechatInboundMessage(params: {
+  msg: WechatMessage;
   cfg: OpenClawConfig;
-  account: ResolvedRuoYiAccount;
+  account: ResolvedWechatAccount;
   statusSink?: (patch: { lastInboundAt?: number; lastOutboundAt?: number; lastError?: string }) => void;
 }): Promise<void> {
   const { msg, cfg, account } = params;
-  const core = getRuoYiRuntime();
+  const core = getWechatRuntime();
 
   const isGroupMsg = msg.isGroupMsg;
   const fromWxid = isGroupMsg ? msg.actualSender || msg.fromUserName : msg.fromUserName;
@@ -256,7 +256,7 @@ async function handleRuoYiInboundMessage(params: {
   const content = msg.content?.trim() ?? "";
 
   if (!content) {
-    console.log("[RuoYi] 收到空消息，已忽略");
+    console.log("[WeChat] 收到空消息，已忽略");
     return;
   }
 
@@ -265,14 +265,14 @@ async function handleRuoYiInboundMessage(params: {
   const groups = account.config.groups ?? {};
   if (isGroupMsg) {
     if (groupPolicy === "disabled") {
-      console.log(`[RuoYi] 群消息已禁用，忽略：${chatId}`);
+      console.log(`[WeChat] 群消息已禁用，忽略：${chatId}`);
       return;
     }
     if (groupPolicy === "allowlist") {
       if (!isGroupAllowed({ groupId: chatId, groups })) {
         const memberAllowFrom = resolveGroupMemberAllowFrom({ account, groupId: chatId });
         if (!isSenderAllowed(fromWxid, memberAllowFrom)) {
-          console.log(`[RuoYi] 群未在允许列表且成员未授权，忽略：${chatId}`);
+          console.log(`[WeChat] 群未在允许列表且成员未授权，忽略：${chatId}`);
           return;
         }
       }
@@ -283,7 +283,7 @@ async function handleRuoYiInboundMessage(params: {
       const mentionFlag = msg.isMentioned;
       const isAtMe = mentionFlag !== undefined && mentionFlag !== null ? Boolean(mentionFlag) : false;
       if (!isAtMe) {
-        console.log(`[RuoYi] 群消息未 @，忽略：${chatId}`);
+        console.log(`[WeChat] 群消息未 @，忽略：${chatId}`);
         return;
       }
     }
@@ -311,7 +311,7 @@ async function handleRuoYiInboundMessage(params: {
 
   if (!isGroupMsg) {
     if (dmPolicy === "disabled") {
-      console.log(`[RuoYi] 私聊已禁用，忽略：${fromWxid}`);
+      console.log(`[WeChat] 私聊已禁用，忽略：${fromWxid}`);
       return;
     }
 
@@ -323,14 +323,14 @@ async function handleRuoYiInboundMessage(params: {
           meta: { name: msg.senderNickname ?? undefined },
         });
         if (created) {
-          console.log(`[RuoYi] 生成配对码：${fromWxid}`);
+          console.log(`[WeChat] 生成配对码：${fromWxid}`);
           try {
             const reply = core.channel.pairing.buildPairingReply({
               channel: CHANNEL_ID,
               idLine: `你的微信ID: ${fromWxid}`,
               code,
             });
-            await deliverRuoYiReply({
+            await deliverWechatReply({
               cfg,
               accountId: account.accountId,
               chatId,
@@ -338,11 +338,11 @@ async function handleRuoYiInboundMessage(params: {
               statusSink: params.statusSink,
             });
           } catch (err) {
-            console.log(`[RuoYi] 发送配对码失败：${String(err)}`);
+            console.log(`[WeChat] 发送配对码失败：${String(err)}`);
           }
         }
       } else {
-        console.log(`[RuoYi] 私聊未授权，忽略：${fromWxid}`);
+        console.log(`[WeChat] 私聊未授权，忽略：${fromWxid}`);
       }
       return;
     }
@@ -353,7 +353,7 @@ async function handleRuoYiInboundMessage(params: {
     core.channel.commands.isControlCommandMessage(rawBody, cfg) &&
     commandAuthorized !== true
   ) {
-    console.log(`[RuoYi] 群控制命令未授权，忽略：${fromWxid}`);
+    console.log(`[WeChat] 群控制命令未授权，忽略：${fromWxid}`);
     return;
   }
 
@@ -426,7 +426,7 @@ async function handleRuoYiInboundMessage(params: {
         }
       : undefined,
     onRecordError: (err) => {
-      console.log(`[RuoYi] 记录会话失败: ${String(err)}`);
+      console.log(`[WeChat] 记录会话失败: ${String(err)}`);
     },
   });
 
@@ -438,7 +438,7 @@ async function handleRuoYiInboundMessage(params: {
     cfg,
     dispatcherOptions: {
       deliver: async (payload) => {
-        await deliverRuoYiReply({
+        await deliverWechatReply({
           cfg,
           accountId: account.accountId,
           chatId,
@@ -447,7 +447,7 @@ async function handleRuoYiInboundMessage(params: {
         });
       },
       onError: (err, info) => {
-        console.log(`[RuoYi] ${info.kind} 回复失败: ${String(err)}`);
+        console.log(`[WeChat] ${info.kind} 回复失败: ${String(err)}`);
       },
     },
     replyOptions: {
@@ -456,25 +456,25 @@ async function handleRuoYiInboundMessage(params: {
   });
 
   if (result.queuedFinal) {
-    console.log(`[RuoYi] 已处理消息：${fromWxid}`);
+    console.log(`[WeChat] 已处理消息：${fromWxid}`);
   } else {
-    console.log(`[RuoYi] 已处理消息但未生成回复：${fromWxid}`);
+    console.log(`[WeChat] 已处理消息但未生成回复：${fromWxid}`);
   }
 }
 
 const meta = {
   id: CHANNEL_ID,
-  label: "微信（RuoYi）",
-  selectionLabel: "微信（RuoYi WebSocket）",
+  label: "微信",
+  selectionLabel: "微信（WebSocket）",
   docsPath: "/channels/wechat-channel",
   docsLabel: "wechat-channel",
-  blurb: "RuoYi 微信通道（WebSocket）",
-  aliases: ["ry"],
+  blurb: "微信通道（WebSocket）",
+  aliases: ["wx"],
   order: 90,
   quickstartAllowFrom: true,
 };
 
-export const ruoyiDock: ChannelDock = {
+export const wechatDock: ChannelDock = {
   id: CHANNEL_ID,
   capabilities: {
     chatTypes: ["direct", "group"],
@@ -484,7 +484,7 @@ export const ruoyiDock: ChannelDock = {
   outbound: { textChunkLimit: DEFAULT_TEXT_LIMIT },
   config: {
     resolveAllowFrom: ({ cfg, accountId }) =>
-      normalizeAllowFromEntries(resolveRuoYiAccount({ cfg, accountId }).config.allowFrom),
+      normalizeAllowFromEntries(resolveWechatAccount({ cfg, accountId }).config.allowFrom),
     formatAllowFrom: ({ allowFrom }) =>
       allowFrom
         .map((entry) => normalizeAllowEntry(entry))
@@ -494,7 +494,7 @@ export const ruoyiDock: ChannelDock = {
   groups: {
     resolveRequireMention: ({ cfg, accountId, groupId }) =>
       resolveGroupRequireMention({
-        account: resolveRuoYiAccount({ cfg, accountId }),
+        account: resolveWechatAccount({ cfg, accountId }),
         groupId,
       }),
   },
@@ -503,7 +503,7 @@ export const ruoyiDock: ChannelDock = {
   },
 };
 
-export const ruoyiPlugin: ChannelPlugin<ResolvedRuoYiAccount> = {
+export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
   id: CHANNEL_ID,
   meta,
   capabilities: {
@@ -516,11 +516,11 @@ export const ruoyiPlugin: ChannelPlugin<ResolvedRuoYiAccount> = {
     blockStreaming: true,
   },
   reload: { configPrefixes: ["channels.wechat-channel"] },
-  configSchema: { schema: RuoYiChannelSchema, uiHints: RuoYiChannelUiHints },
+  configSchema: { schema: WechatChannelSchema, uiHints: WechatChannelUiHints },
   config: {
-    listAccountIds: (cfg) => listRuoYiAccountIds(cfg as OpenClawConfig),
-    resolveAccount: (cfg, accountId) => resolveRuoYiAccount({ cfg: cfg as OpenClawConfig, accountId }),
-    defaultAccountId: (cfg) => resolveDefaultRuoYiAccountId(cfg as OpenClawConfig),
+    listAccountIds: (cfg) => listWechatAccountIds(cfg as OpenClawConfig),
+    resolveAccount: (cfg, accountId) => resolveWechatAccount({ cfg: cfg as OpenClawConfig, accountId }),
+    defaultAccountId: (cfg) => resolveDefaultWechatAccountId(cfg as OpenClawConfig),
     setAccountEnabled: ({ cfg, accountId, enabled }) =>
       setAccountEnabledInConfigSection({
         cfg: cfg as OpenClawConfig,
@@ -555,7 +555,7 @@ export const ruoyiPlugin: ChannelPlugin<ResolvedRuoYiAccount> = {
       baseUrl: account.config.baseUrl,
     }),
     resolveAllowFrom: ({ cfg, accountId }) =>
-      normalizeAllowFromEntries(resolveRuoYiAccount({ cfg, accountId }).config.allowFrom),
+      normalizeAllowFromEntries(resolveWechatAccount({ cfg, accountId }).config.allowFrom),
     formatAllowFrom: ({ allowFrom }) =>
       allowFrom
         .map((entry) => normalizeAllowEntry(entry))
@@ -584,8 +584,8 @@ export const ruoyiPlugin: ChannelPlugin<ResolvedRuoYiAccount> = {
     idLabel: "wechatId",
     normalizeAllowEntry: (entry) => normalizeAllowEntry(entry),
     notifyApproval: async ({ id, cfg }) => {
-      const resolvedAccountId = resolveDefaultRuoYiAccountId(cfg as OpenClawConfig);
-      const account = resolveRuoYiAccount({
+      const resolvedAccountId = resolveDefaultWechatAccountId(cfg as OpenClawConfig);
+      const account = resolveWechatAccount({
         cfg: cfg as OpenClawConfig,
         accountId: resolvedAccountId,
       });
@@ -647,7 +647,7 @@ export const ruoyiPlugin: ChannelPlugin<ResolvedRuoYiAccount> = {
           },
         } as OpenClawConfig;
       }
-      const base = (next.channels?.[CHANNEL_ID] ?? {}) as RuoYiChannelConfig;
+      const base = (next.channels?.[CHANNEL_ID] ?? {}) as WechatChannelConfig;
       return {
         ...next,
         channels: {
@@ -669,7 +669,7 @@ export const ruoyiPlugin: ChannelPlugin<ResolvedRuoYiAccount> = {
     },
   },
   messaging: {
-    normalizeTarget: (raw) => normalizeRuoYiTarget(raw),
+    normalizeTarget: (raw) => normalizeWechatTarget(raw),
     targetResolver: {
       looksLikeId: (raw) => Boolean(raw?.trim()),
       hint: "<wxid|chatroomId>",
@@ -677,24 +677,24 @@ export const ruoyiPlugin: ChannelPlugin<ResolvedRuoYiAccount> = {
   },
   outbound: {
     deliveryMode: "direct",
-    chunker: (text, limit) => getRuoYiRuntime().channel.text.chunkText(text, limit),
+    chunker: (text, limit) => getWechatRuntime().channel.text.chunkText(text, limit),
     chunkerMode: "text",
     textChunkLimit: DEFAULT_TEXT_LIMIT,
     sendText: async ({ cfg, to, text, accountId }) => {
-      const account = resolveRuoYiAccount({ cfg: cfg as OpenClawConfig, accountId });
+      const account = resolveWechatAccount({ cfg: cfg as OpenClawConfig, accountId });
       const wsClient = getWebSocketClient(account.accountId);
       if (!wsClient || !wsClient.isConnected()) {
         throw new Error("WebSocket 未连接");
       }
       wsClient.sendText(to, text);
-      console.log(`[RuoYi] 已发送文本消息: to=${to}`);
+      console.log(`[WeChat] 已发送文本消息: to=${to}`);
       return {
         channel: CHANNEL_ID,
         messageId: String(Date.now()),
       };
     },
     sendMedia: async ({ cfg, to, text, mediaUrl, accountId }) => {
-      const account = resolveRuoYiAccount({ cfg: cfg as OpenClawConfig, accountId });
+      const account = resolveWechatAccount({ cfg: cfg as OpenClawConfig, accountId });
       const wsClient = getWebSocketClient(account.accountId);
       if (!wsClient || !wsClient.isConnected()) {
         throw new Error("WebSocket 未连接");
@@ -705,7 +705,7 @@ export const ruoyiPlugin: ChannelPlugin<ResolvedRuoYiAccount> = {
       if (mediaUrl) {
         wsClient.sendImage(to, mediaUrl);
       }
-      console.log(`[RuoYi] 已发送媒体消息: to=${to}`);
+      console.log(`[WeChat] 已发送媒体消息: to=${to}`);
       return {
         channel: CHANNEL_ID,
         messageId: String(Date.now()),
@@ -767,7 +767,7 @@ export const ruoyiPlugin: ChannelPlugin<ResolvedRuoYiAccount> = {
     }),
   },
   gateway: {
-    startAccount: async (ctx: ChannelGatewayContext<ResolvedRuoYiAccount>) => {
+    startAccount: async (ctx: ChannelGatewayContext<ResolvedWechatAccount>) => {
       const { cfg, accountId, account, abortSignal, setStatus, getStatus } = ctx;
 
       if (!account.config.baseUrl || !account.config.robotWxid) {
@@ -780,12 +780,12 @@ export const ruoyiPlugin: ChannelPlugin<ResolvedRuoYiAccount> = {
         baseUrl: account.config.baseUrl,
       });
 
-      const wsClient = new RuoYiWebSocketClient({
+      const wsClient = new WechatWebSocketClient({
         baseUrl: account.config.baseUrl,
         robotWxid: account.config.robotWxid,
         onMessage: async (msg) => {
           try {
-            await handleRuoYiInboundMessage({
+            await handleWechatInboundMessage({
               msg,
               cfg,
               account,
@@ -815,7 +815,7 @@ export const ruoyiPlugin: ChannelPlugin<ResolvedRuoYiAccount> = {
             lastError: null,
             lastStartAt: Date.now(),
           });
-          console.log(`[RuoYi Gateway] 已连接账号: ${accountId}`);
+          console.log(`[WeChat Gateway] 已连接账号: ${accountId}`);
         },
         onDisconnect: () => {
           setStatus({
@@ -823,7 +823,7 @@ export const ruoyiPlugin: ChannelPlugin<ResolvedRuoYiAccount> = {
             running: false,
             lastStopAt: Date.now(),
           });
-          console.log(`[RuoYi Gateway] 连接断开: ${accountId}`);
+          console.log(`[WeChat Gateway] 连接断开: ${accountId}`);
         },
       });
 
@@ -831,7 +831,7 @@ export const ruoyiPlugin: ChannelPlugin<ResolvedRuoYiAccount> = {
       await wsClient.connect();
 
       abortSignal.addEventListener("abort", () => {
-        console.log(`[RuoYi Gateway] 收到终止信号，断开连接: ${accountId}`);
+        console.log(`[WeChat Gateway] 收到终止信号，断开连接: ${accountId}`);
         wsClient.disconnect();
         wsClients.delete(account.accountId);
       });

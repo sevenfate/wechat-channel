@@ -2,11 +2,11 @@
 
 let runtime: PluginRuntime | null = null;
 
-export function setRuoYiRuntime(next: PluginRuntime): void {
+export function setWechatRuntime(next: PluginRuntime): void {
   runtime = next;
 }
 
-export function getRuoYiRuntime(): PluginRuntime {
+export function getWechatRuntime(): PluginRuntime {
   if (!runtime) {
     throw new Error("插件未注册，runtime 未初始化");
   }

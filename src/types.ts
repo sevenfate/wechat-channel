@@ -1,13 +1,13 @@
 ﻿/**
- * RuoYi 微信通道类型定义
+ * 微信通道类型定义
  */
 
 import type { DmPolicy, GroupPolicy } from "openclaw/plugin-sdk";
 
 /**
- * RuoYi WeChat 消息结构
+ * 微信消息结构
  */
-export interface RuoYiWechatMessage {
+export interface WechatMessage {
   id: number;
   newMsgId: number;
   msgType: number;
@@ -26,7 +26,7 @@ export interface RuoYiWechatMessage {
  */
 export type WebSocketMessage =
   | { type: "auth"; status: string; message: string }
-  | { type: "message"; data: RuoYiWechatMessage }
+  | { type: "message"; data: WechatMessage }
   | { type: "ping"; timestamp: number }
   | { type: "error"; message: string }
   | { type: "send_result"; success: boolean; messageId?: string };
@@ -37,7 +37,7 @@ export type WebSocketMessage =
 export interface WebSocketClientConfig {
   baseUrl: string; // ws://localhost:8080
   robotWxid: string; // 机器人 wxid
-  onMessage: (message: RuoYiWechatMessage) => Promise<void>;
+  onMessage: (message: WechatMessage) => Promise<void>;
   onError?: (error: Error) => void;
   onConnect?: () => void;
   onDisconnect?: () => void;
@@ -46,7 +46,7 @@ export interface WebSocketClientConfig {
 /**
  * 群配置
  */
-export interface RuoYiGroupConfig {
+export interface WechatGroupConfig {
   /** 是否允许该群 */
   allow?: boolean;
   /** 是否启用该群 */
@@ -56,9 +56,9 @@ export interface RuoYiGroupConfig {
 }
 
 /**
- * RuoYi 账号配置
+ * 账号配置
  */
-export interface RuoYiAccountConfig {
+export interface WechatAccountConfig {
   name?: string;
   enabled?: boolean;
   baseUrl?: string;
@@ -67,26 +67,26 @@ export interface RuoYiAccountConfig {
   allowFrom?: Array<string | number>;
   groupMembers?: Record<string, Array<string | number>>;
   groupPolicy?: GroupPolicy;
-  groups?: Record<string, RuoYiGroupConfig>;
+  groups?: Record<string, WechatGroupConfig>;
   requireMention?: boolean;
   /** 是否启用 block streaming（分块实时回复） */
   blockStreaming?: boolean;
 }
 
 /**
- * RuoYi 通道配置
+ * 通道配置
  */
-export interface RuoYiChannelConfig extends RuoYiAccountConfig {
+export interface WechatChannelConfig extends WechatAccountConfig {
   defaultAccount?: string;
-  accounts?: Record<string, RuoYiAccountConfig>;
+  accounts?: Record<string, WechatAccountConfig>;
 }
 
 /**
- * 解析后的 RuoYi 账号配置
+ * 解析后的 账号配置
  */
-export type ResolvedRuoYiAccount = {
+export type ResolvedWechatAccount = {
   accountId: string;
   name?: string;
   enabled: boolean;
-  config: RuoYiAccountConfig;
+  config: WechatAccountConfig;
 };

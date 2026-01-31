@@ -1,4 +1,4 @@
-﻿export const RuoYiChannelSchema = {
+﻿export const WechatChannelSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
@@ -77,7 +77,7 @@
   },
 } as const;
 
-export const RuoYiChannelUiHints = {
+export const WechatChannelUiHints = {
   enabled: { label: "启用通道", order: 10 },
   baseUrl: { label: "WebSocket 地址", help: "示例：http://127.0.0.1:8080", order: 20 },
   robotWxid: { label: "机器人 wxid", order: 30 },

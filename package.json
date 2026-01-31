@@ -2,20 +2,20 @@
   "name": "@clawdbot/wechat-channel",
   "version": "0.1.0",
   "type": "module",
-  "description": "RuoYi 微信通道插件（WebSocket）",
+  "description": "微信通道插件（WebSocket）",
   "openclaw": {
     "extensions": [
       "./index.ts"
     ],
     "channel": {
       "id": "wechat-channel",
-      "label": "微信（RuoYi）",
-      "selectionLabel": "微信（RuoYi WebSocket）",
+      "label": "微信",
+      "selectionLabel": "微信（WebSocket）",
       "docsPath": "/channels/wechat-channel",
       "docsLabel": "wechat-channel",
-      "blurb": "RuoYi 微信通道（WebSocket）",
+      "blurb": "微信通道（WebSocket）",
       "aliases": [
-        "ry"
+        "wx"
       ],
       "order": 90,
       "quickstartAllowFrom": true

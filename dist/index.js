@@ -1,5 +1,5 @@
 // src/websocket.ts
-var RuoYiWebSocketClient = class {
+var WeChatWebSocketClient = class {
   constructor(options) {
     this.options = options;
     this.robotWxid = options.robotWxid;
@@ -13,11 +13,11 @@ var RuoYiWebSocketClient = class {
    * 杩炴帴鍒?WebSocket 鏈嶅姟鍣?   */
   async connect() {
     const url = `${this.options.baseUrl.replace("http://", "ws://").replace("https://", "wss://")}/ws/robot/${this.robotWxid}`;
-    console.log(`[RuoYi WebSocket] Connecting to ${url}`);
+    console.log(`[WeChat WebSocket] Connecting to ${url}`);
     this.ws = new WebSocket(url);
     this.ws.onopen = () => {
       var _a, _b;
-      console.log("[RuoYi WebSocket] Connected");
+      console.log("[WeChat WebSocket] Connected");
       this.reconnectAttempts = 0;
       (_b = (_a = this.options).onConnect) == null ? void 0 : _b.call(_a);
       this.send({
@@ -35,33 +35,33 @@ var RuoYiWebSocketClient = class {
             await this.options.onMessage(message.data);
             break;
           case "ping":
-            console.debug("[RuoYi WebSocket] Received ping");
+            console.debug("[WeChat WebSocket] Received ping");
             break;
           case "error":
-            console.error("[RuoYi WebSocket] Error:", message.message);
+            console.error("[WeChat WebSocket] Error:", message.message);
             (_b = (_a = this.options).onError) == null ? void 0 : _b.call(_a, new Error(message.message));
             break;
           case "auth":
-            console.log("[RuoYi WebSocket] Auth response:", message);
+            console.log("[WeChat WebSocket] Auth response:", message);
             break;
           case "send_result":
-            console.debug("[RuoYi WebSocket] Send result:", message);
+            console.debug("[WeChat WebSocket] Send result:", message);
             break;
           default:
-            console.warn("[RuoYi WebSocket] Unknown message type:", message);
+            console.warn("[WeChat WebSocket] Unknown message type:", message);
         }
       } catch (error) {
-        console.error("[RuoYi WebSocket] Failed to handle message:", error);
+        console.error("[WeChat WebSocket] Failed to handle message:", error);
       }
     };
     this.ws.onerror = (error) => {
       var _a, _b;
-      console.error("[RuoYi WebSocket] Error:", error);
+      console.error("[WeChat WebSocket] Error:", error);
       (_b = (_a = this.options).onError) == null ? void 0 : _b.call(_a, new Error("WebSocket error"));
     };
     this.ws.onclose = () => {
       var _a, _b;
-      console.log("[RuoYi WebSocket] Disconnected");
+      console.log("[WeChat WebSocket] Disconnected");
       (_b = (_a = this.options).onDisconnect) == null ? void 0 : _b.call(_a);
       this.scheduleReconnect();
     };
@@ -84,7 +84,7 @@ var RuoYiWebSocketClient = class {
    */
   scheduleReconnect() {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error("[RuoYi WebSocket] Max reconnect attempts reached");
+      console.error("[WeChat WebSocket] Max reconnect attempts reached");
       return;
     }
     this.reconnectAttempts++;
@@ -93,7 +93,7 @@ var RuoYiWebSocketClient = class {
       3e4
     );
     console.log(
-      `[RuoYi WebSocket] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`
+      `[WeChat WebSocket] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`
     );
     this.reconnectTimer = setTimeout(() => {
       this.connect();
@@ -105,7 +105,7 @@ var RuoYiWebSocketClient = class {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data));
     } else {
-      console.warn("[RuoYi WebSocket] Cannot send message: not connected");
+      console.warn("[WeChat WebSocket] Cannot send message: not connected");
     }
   }
   /**
@@ -151,13 +151,13 @@ var RuoYiWebSocketClient = class {
 };
 
 // src/channel.ts
-function resolveRuoYiAccount({
+function resolveWeChatAccount({
   cfg,
   accountId
 }) {
   const account = cfg.accounts[accountId];
   if (!account) {
-    throw new Error(`RuoYi account not found: ${accountId}`);
+    throw new Error(`WeChat account not found: ${accountId}`);
   }
   return account;
 }
@@ -165,7 +165,7 @@ var wsClients = /* @__PURE__ */ new Map();
 function getWebSocketClient(accountId) {
   return wsClients.get(accountId);
 }
-async function handleRuoYiInboundMessage(msg, context) {
+async function handleWeChatInboundMessage(msg, context) {
   const { cfg, runtime, accountId, allowFrom, dmPolicy, requireMention } = context;
   const isGroupMsg = msg.isGroupMsg;
   const fromWxid = isGroupMsg ? msg.actualSender || msg.fromUserName : msg.fromUserName;
@@ -176,17 +176,17 @@ async function handleRuoYiInboundMessage(msg, context) {
     const normalizedFrom = fromWxid.toLowerCase();
     const checkId = isGroupMsg ? msg.fromUserName.toLowerCase() : normalizedFrom;
     if (!normalizedAllowFrom.includes(checkId)) {
-      console.log(`[RuoYi] \u6D88\u606F\u6765\u81EA ${checkId}\uFF0C\u4E0D\u5728\u767D\u540D\u5355\u4E2D\uFF0C\u5FFD\u7565`);
+      console.log(`[WeChat] \u6D88\u606F\u6765\u81EA ${checkId}\uFF0C\u4E0D\u5728\u767D\u540D\u5355\u4E2D\uFF0C\u5FFD\u7565`);
       return;
     }
   } else if (dmPolicy === "block") {
-    console.log(`[RuoYi] DM \u7B56\u7565\u4E3A block\uFF0C\u5FFD\u7565\u6240\u6709\u6D88\u606F`);
+    console.log(`[WeChat] DM \u7B56\u7565\u4E3A block\uFF0C\u5FFD\u7565\u6240\u6709\u6D88\u606F`);
     return;
   }
   if (isGroupMsg && requireMention) {
     const isAtMe = content.includes("@\u4E86\u4F60") || content.includes("@\u673A\u5668\u4EBA");
     if (!isAtMe) {
-      console.log(`[RuoYi] \u7FA4\u804A\u6D88\u606F\u672A @\u673A\u5668\u4EBA\uFF0C\u5FFD\u7565`);
+      console.log(`[WeChat] \u7FA4\u804A\u6D88\u606F\u672A @\u673A\u5668\u4EBA\uFF0C\u5FFD\u7565`);
       return;
     }
   }
@@ -194,13 +194,13 @@ async function handleRuoYiInboundMessage(msg, context) {
     role: "user",
     content,
     timestamp: new Date(msg.createTimeMsg * 1e3).toISOString(),
-    channelId: "ruoyi-wechat",
+    channelId: "wechat-channel",
     accountId,
     // 瑙ｆ瀽鍙戦€佽€呬俊鎭?    author: {
       id: fromWxid,
       displayName: msg.senderNickname || fromWxid,
       accountId,
-      channelId: "ruoyi-wechat"
+      channelId: "wechat-channel"
     },
     // 瑙ｆ瀽鍥炲鐩爣
     inReplyTo: void 0,
@@ -220,18 +220,18 @@ async function handleRuoYiInboundMessage(msg, context) {
     }
   };
   await runtime.messages.submitInboundMessage(inboundMessage);
-  console.log(`[RuoYi] \u5165\u7AD9\u6D88\u606F\u5DF2\u63D0\u4EA4: from=${fromWxid}, content=${content.substring(0, 50)}...`);
+  console.log(`[WeChat] \u5165\u7AD9\u6D88\u606F\u5DF2\u63D0\u4EA4: from=${fromWxid}, content=${content.substring(0, 50)}...`);
 }
-var ruoyiWechatPlugin = {
-  pluginId: "ruoyi-wechat",
-  pluginName: "RuoYi WeChat",
+var wechatChannelPlugin = {
+  pluginId: "wechat-channel",
+  pluginName: "WeChat",
   pluginType: "channel",
   metadata: {
-    description: "RuoYi \u5FAE\u4FE1\u673A\u5668\u4EBA\u901A\u9053\u63D2\u4EF6",
-    homepage: "https://github.com/ruoyi/wechat",
+    description: "WeChat \u5FAE\u4FE1\u673A\u5668\u4EBA\u901A\u9053\u63D2\u4EF6",
+    homepage: "",
     icons: [
       {
-        src: "https://github.com/ruoyi.png",
+        src: "",
         type: "image/png",
         sizes: "512x512"
       }
@@ -242,13 +242,13 @@ var ruoyiWechatPlugin = {
     properties: {
       accounts: {
         type: "object",
-        description: "RuoYi \u8D26\u53F7\u914D\u7F6E",
+        description: "WeChat \u8D26\u53F7\u914D\u7F6E",
         additionalProperties: {
           type: "object",
           properties: {
             baseUrl: {
               type: "string",
-              description: "RuoYi WebSocket \u5730\u5740\uFF08\u5982\uFF1Aws://localhost:8080\uFF09"
+              description: "WeChat WebSocket \u5730\u5740\uFF08\u5982\uFF1Aws://localhost:8080\uFF09"
             },
             robotWxid: {
               type: "string",
@@ -277,10 +277,10 @@ var ruoyiWechatPlugin = {
   },
   // 璐﹀彿瑙ｆ瀽
   resolveAccount: ({ cfg, accountId }) => {
-    const account = resolveRuoYiAccount({ cfg, accountId });
+    const account = resolveWeChatAccount({ cfg, accountId });
     return {
       accountId,
-      channel: "ruoyi-wechat",
+      channel: "wechat-channel",
       account: {
         ...account,
         baseUrl: account.baseUrl,
@@ -289,7 +289,7 @@ var ruoyiWechatPlugin = {
         allowFrom: account.allowFrom || [],
         requireMention: account.requireMention ?? true
       },
-      displayName: `RuoYi WeChat (${account.robotWxid})`,
+      displayName: `WeChat (${account.robotWxid})`,
       capabilities: {
         sending: {
           text: true,
@@ -305,17 +305,17 @@ var ruoyiWechatPlugin = {
   gateway: {
     startAccount: async (ctx) => {
       const { cfg, accountId, account, abortSignal, setStatus, getStatus } = ctx;
-      console.log(`[RuoYi Gateway] Starting account: ${accountId}`);
+      console.log(`[WeChat Gateway] Starting account: ${accountId}`);
       if (!account.baseUrl || !account.robotWxid) {
-        throw new Error("RuoYi base URL and robotWxid are required");
+        throw new Error("WeChat base URL and robotWxid are required");
       }
       const pluginRuntime = ctx;
-      const wsClient = new RuoYiWebSocketClient({
+      const wsClient = new WeChatWebSocketClient({
         baseUrl: account.baseUrl,
         robotWxid: account.robotWxid,
         onMessage: async (msg) => {
           try {
-            await handleRuoYiInboundMessage(msg, {
+            await handleWeChatInboundMessage(msg, {
               cfg,
               runtime: pluginRuntime,
               accountId,
@@ -344,7 +344,7 @@ var ruoyiWechatPlugin = {
           });
         },
         onConnect: () => {
-          console.log("[RuoYi Gateway] WebSocket connected");
+          console.log("[WeChat Gateway] WebSocket connected");
           setStatus({
             ...getStatus(),
             running: true,
@@ -352,7 +352,7 @@ var ruoyiWechatPlugin = {
           });
         },
         onDisconnect: () => {
-          console.log("[RuoYi Gateway] WebSocket disconnected");
+          console.log("[WeChat Gateway] WebSocket disconnected");
           setStatus({
             ...getStatus(),
             running: false
@@ -362,7 +362,7 @@ var ruoyiWechatPlugin = {
       wsClients.set(accountId, wsClient);
       await wsClient.connect();
       abortSignal.addEventListener("abort", () => {
-        console.log("[RuoYi Gateway] Abort signal received, disconnecting...");
+        console.log("[WeChat Gateway] Abort signal received, disconnecting...");
         wsClient.disconnect();
         wsClients.delete(accountId);
       });
@@ -370,7 +370,7 @@ var ruoyiWechatPlugin = {
     },
     stopAccount: async (ctx) => {
       const { accountId, getStatus, setStatus } = ctx;
-      console.log("[RuoYi Gateway] Stopping account");
+      console.log("[WeChat Gateway] Stopping account");
       const wsClient = wsClients.get(accountId);
       if (wsClient) {
         wsClient.disconnect();
@@ -401,30 +401,30 @@ var ruoyiWechatPlugin = {
     chunkerMode: "text",
     textChunkLimit: 2048,
     sendText: async ({ to, text, accountId, cfg }) => {
-      const account = resolveRuoYiAccount({ cfg, accountId });
+      const account = resolveWeChatAccount({ cfg, accountId });
       const wsClient = getWebSocketClient(accountId);
       if (!wsClient || !wsClient.isConnected()) {
         return {
-          channel: "ruoyi-wechat",
+          channel: "wechat-channel",
           ok: false,
           messageId: "",
           error: new Error("WebSocket not connected")
         };
       }
       wsClient.sendText(to, text);
-      console.log(`[RuoYi] \u53D1\u9001\u6587\u672C\u6D88\u606F: to=${to}, content=${text.substring(0, 50)}...`);
+      console.log(`[WeChat] \u53D1\u9001\u6587\u672C\u6D88\u606F: to=${to}, content=${text.substring(0, 50)}...`);
       return {
-        channel: "ruoyi-wechat",
+        channel: "wechat-channel",
         ok: true,
         messageId: String(Date.now())
       };
     },
     sendMedia: async ({ to, text, mediaUrl, accountId, cfg }) => {
-      const account = resolveRuoYiAccount({ cfg, accountId });
+      const account = resolveWeChatAccount({ cfg, accountId });
       const wsClient = getWebSocketClient(accountId);
       if (!wsClient || !wsClient.isConnected()) {
         return {
-          channel: "ruoyi-wechat",
+          channel: "wechat-channel",
           ok: false,
           messageId: "",
           error: new Error("WebSocket not connected")
@@ -432,13 +432,13 @@ var ruoyiWechatPlugin = {
       }
       if (mediaUrl) {
         wsClient.sendImage(to, mediaUrl);
-        console.log(`[RuoYi] \u53D1\u9001\u56FE\u7247\u6D88\u606F: to=${to}, url=${mediaUrl}`);
+        console.log(`[WeChat] \u53D1\u9001\u56FE\u7247\u6D88\u606F: to=${to}, url=${mediaUrl}`);
       } else {
         wsClient.sendText(to, text || "");
-        console.log(`[RuoYi] \u53D1\u9001\u6587\u672C\u6D88\u606F: to=${to}, content=${text == null ? void 0 : text.substring(0, 50)}...`);
+        console.log(`[WeChat] \u53D1\u9001\u6587\u672C\u6D88\u606F: to=${to}, content=${text == null ? void 0 : text.substring(0, 50)}...`);
       }
       return {
-        channel: "ruoyi-wechat",
+        channel: "wechat-channel",
         ok: true,
         messageId: String(Date.now())
       };
@@ -447,9 +447,9 @@ var ruoyiWechatPlugin = {
 };
 
 // src/index.ts
-var index_default = ruoyiWechatPlugin;
+var index_default = wechatChannelPlugin;
 export {
-  RuoYiWebSocketClient,
+  WeChatWebSocketClient,
   index_default as default
 };
 //# sourceMappingURL=index.js.map

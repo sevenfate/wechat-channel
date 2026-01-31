@@ -21,7 +21,7 @@ npm install -g openclaw@latest
 安装插件（推荐用 `-l` 做本地链接，便于开发）：
 
 ```bash
-openclaw plugins install -l "e:\web\apk\RuoYi-Vue-Wechat\wechat-channel"
+openclaw plugins install -l "e:\path\wechat-channel"
 ```
 
 ### 方式二：使用仓库内 openclaw（本地 CLI）
@@ -29,7 +29,7 @@ openclaw plugins install -l "e:\web\apk\RuoYi-Vue-Wechat\wechat-channel"
 在本仓库内使用 openclaw 的脚本启动 CLI：
 
 ```bash
-cd e:\web\apk\RuoYi-Vue-Wechat\openclaw
+cd e:\path\openclaw
 pnpm install
 pnpm openclaw plugins install -l ..\wechat-channel
 ```
@@ -83,9 +83,9 @@ openclaw message send --channel wechat-channel --target wxid_user123 --message "
 ## 5. 启动服务
 
 ```bash
-# 启动后端（RuoYi）
-cd RuoYi-Vue
-mvn spring-boot:run
+# 启动后端服务（示例）
+# cd your-server
+# <start-command>
 
 # 启动 OpenClaw 网关
 cd ..
@@ -94,7 +94,7 @@ pnpm gateway:watch
 
 ## 6. 常见排查
 
-- RuoYi 端口是否可用：
+- 服务端口是否可用：
 
 ```bash
 curl http://localhost:8080/actuator/health

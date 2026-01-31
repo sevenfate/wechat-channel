@@ -1,6 +1,6 @@
-﻿# wechat-channel（RuoYi 微信通道）
+﻿# wechat-channel（微信通道）
 
-通过 RuoYi 后端的 WebSocket 接入 OpenClaw。机器人名称：阿飞。
+通过 WebSocket 接入 OpenClaw。机器人名称：阿飞。
 
 ## 功能
 
@@ -31,7 +31,7 @@ npm install -g openclaw@latest
 安装插件（推荐用 `-l` 做本地链接，便于开发）：
 
 ```bash
-openclaw plugins install -l "e:\web\apk\RuoYi-Vue-Wechat\wechat-channel"
+openclaw plugins install -l "e:\path\wechat-channel"
 ```
 
 ### 方式二：使用仓库内 openclaw（本地 CLI）
@@ -39,7 +39,7 @@ openclaw plugins install -l "e:\web\apk\RuoYi-Vue-Wechat\wechat-channel"
 在本仓库内使用 openclaw 的脚本启动 CLI：
 
 ```bash
-cd e:\web\apk\RuoYi-Vue-Wechat\openclaw
+cd e:\path\openclaw
 pnpm install
 pnpm openclaw plugins install -l ..\wechat-channel
 ```
