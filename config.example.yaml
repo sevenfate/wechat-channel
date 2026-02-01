@@ -58,6 +58,9 @@ channels:
     # 分块实时回复（建议开启）
     blockStreaming: true
 
+    # 控制台日志（调试用，默认关闭）
+    # consoleLog: false
+
     # 流式分块合并（可选）
     # blockStreamingCoalesce:
     #   minChars: 800

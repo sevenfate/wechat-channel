@@ -73,6 +73,7 @@ export const WechatChannelSchema = {
     chunkMode: { type: "string", enum: ["length", "newline"] },
     blockStreaming: { type: "boolean" },
     blockStreamingCoalesce: BlockStreamingCoalesceSchema,
+    consoleLog: { type: "boolean" },
     accounts: {
       type: "object",
       additionalProperties: {
@@ -116,6 +117,7 @@ export const WechatChannelSchema = {
           chunkMode: { type: "string", enum: ["length", "newline"] },
           blockStreaming: { type: "boolean" },
           blockStreamingCoalesce: BlockStreamingCoalesceSchema,
+          consoleLog: { type: "boolean" },
         },
       },
     },
@@ -162,6 +164,11 @@ export const WechatChannelUiHints = {
   "blockStreamingCoalesce.minChars": { label: "最小字符数", order: 88 },
   "blockStreamingCoalesce.maxChars": { label: "最大字符数", order: 89 },
   "blockStreamingCoalesce.idleMs": { label: "空闲间隔(ms)", order: 90 },
+  consoleLog: {
+    label: "控制台日志（调试）",
+    help: "启用后会将微信通道日志额外输出到控制台",
+    order: 91,
+  },
   defaultAccount: { label: "默认账号", order: 95 },
   accounts: { label: "账号列表", order: 100 },
   name: { label: "账号名称", order: 15 },
@@ -184,6 +191,11 @@ export const WechatChannelUiHints = {
   "accounts.*.blockStreamingCoalesce.minChars": { label: "最小字符数", order: 98 },
   "accounts.*.blockStreamingCoalesce.maxChars": { label: "最大字符数", order: 99 },
   "accounts.*.blockStreamingCoalesce.idleMs": { label: "空闲间隔(ms)", order: 100 },
+  "accounts.*.consoleLog": {
+    label: "控制台日志（调试）",
+    help: "启用后会将微信通道日志额外输出到控制台",
+    order: 101,
+  },
   "groups.*.allow": { label: "整群白名单", help: "允许该群所有成员触发。", order: 10 },
   "groups.*.requireMention": { label: "必须@才处理", order: 20 },
   "groups.*.enabled": { label: "启用该群", order: 30 },

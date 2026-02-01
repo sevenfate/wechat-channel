@@ -3,6 +3,7 @@ import type {
   ChannelDock,
   ChannelGatewayContext,
   ChannelGroupContext,
+  ChannelLogSink,
   ChannelPlugin,
   OpenClawConfig,
   ChannelStatusIssue,
@@ -41,6 +42,49 @@ const wsClients = new Map<string, WechatWebSocketClient>();
 
 function getWebSocketClient(accountId: string): WechatWebSocketClient | undefined {
   return wsClients.get(accountId);
+}
+
+function createConsoleMirrorLogger(base: ChannelLogSink): ChannelLogSink {
+  const write = (message: string) => {
+    try {
+      process.stderr.write(`${message}\n`);
+    } catch {
+      // ignore console write failures
+    }
+  };
+
+  return {
+    info: (message) => {
+      base.info(message);
+      write(message);
+    },
+    warn: (message) => {
+      base.warn(message);
+      write(message);
+    },
+    error: (message) => {
+      base.error(message);
+      write(message);
+    },
+    debug: base.debug
+      ? (message) => {
+          base.debug?.(message);
+          write(message);
+        }
+      : undefined,
+  };
+}
+
+function createWechatLogger(account: ResolvedWechatAccount): ChannelLogSink {
+  const core = getWechatRuntime();
+  const base = core.logging.getChildLogger({
+    channel: CHANNEL_ID,
+    accountId: account.accountId,
+  });
+  if (!account.config.consoleLog) {
+    return base;
+  }
+  return createConsoleMirrorLogger(base);
 }
 
 function resolveChannelConfig(cfg: OpenClawConfig): WechatChannelConfig {
@@ -312,10 +356,7 @@ async function deliverWechatReply(params: {
 async function processWechatInboundMessage(params: WechatInboundParams): Promise<void> {
   const { msg, cfg, account } = params;
   const core = getWechatRuntime();
-  const logger = core.logging.getChildLogger({
-    channel: CHANNEL_ID,
-    accountId: account.accountId,
-  });
+  const logger = createWechatLogger(account);
   const logVerbose = (message: string) => {
     if (core.logging.shouldLogVerbose()) {
       logger.debug?.(message);
@@ -807,10 +848,7 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
     sendText: async ({ cfg, to, text, accountId }) => {
       const account = resolveWechatAccount({ cfg: cfg as OpenClawConfig, accountId });
       const core = getWechatRuntime();
-      const logger = core.logging.getChildLogger({
-        channel: CHANNEL_ID,
-        accountId: account.accountId,
-      });
+      const logger = createWechatLogger(account);
       const wsClient = getWebSocketClient(account.accountId);
       if (!wsClient || !wsClient.isConnected()) {
         throw new Error("WebSocket 未连接");
@@ -831,10 +869,7 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
     sendMedia: async ({ cfg, to, text, mediaUrl, accountId }) => {
       const account = resolveWechatAccount({ cfg: cfg as OpenClawConfig, accountId });
       const core = getWechatRuntime();
-      const logger = core.logging.getChildLogger({
-        channel: CHANNEL_ID,
-        accountId: account.accountId,
-      });
+      const logger = createWechatLogger(account);
       const wsClient = getWebSocketClient(account.accountId);
       if (!wsClient || !wsClient.isConnected()) {
         throw new Error("WebSocket 未连接");
@@ -921,10 +956,7 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
       }
 
       const core = getWechatRuntime();
-      const logger = core.logging.getChildLogger({
-        channel: CHANNEL_ID,
-        accountId: account.accountId,
-      });
+      const logger = createWechatLogger(account);
       const inboundDebounceMs = core.channel.debounce.resolveInboundDebounceMs({
         cfg,
         channel: CHANNEL_ID,

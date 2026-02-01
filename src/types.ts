@@ -92,6 +92,8 @@ export interface WechatAccountConfig {
   blockStreaming?: boolean;
   /** 流式分块合并参数 */
   blockStreamingCoalesce?: BlockStreamingCoalesceConfig;
+  /** 调试：将日志额外输出到控制台 */
+  consoleLog?: boolean;
 }
 
 /**
