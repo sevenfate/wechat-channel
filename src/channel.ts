@@ -2,9 +2,11 @@ import type {
   ChannelAccountSnapshot,
   ChannelDock,
   ChannelGatewayContext,
+  ChannelGroupContext,
   ChannelPlugin,
   OpenClawConfig,
   ChannelStatusIssue,
+  GroupToolPolicyConfig,
 } from "openclaw/plugin-sdk";
 import {
   applyAccountNameToChannelSection,
@@ -13,6 +15,7 @@ import {
   formatPairingApproveHint,
   migrateBaseNameToDefaultAccount,
   normalizeAccountId,
+  resolveToolsBySender,
   setAccountEnabledInConfigSection,
   PAIRING_APPROVED_MESSAGE,
 } from "openclaw/plugin-sdk";
@@ -126,6 +129,13 @@ function normalizeAllowFromEntries(allowFrom?: Array<string | number>): string[]
     .filter(Boolean);
 }
 
+function resolveWechatSenderId(msg: WechatMessage): string {
+  if (msg.isGroupMsg) {
+    return msg.actualSender || msg.fromUserName;
+  }
+  return msg.fromUserName;
+}
+
 function isSenderAllowed(senderId: string, allowFrom: string[]): boolean {
   if (allowFrom.includes("*")) return true;
   const normalizedSender = normalizeAllowEntry(senderId).toLowerCase();
@@ -162,8 +172,13 @@ function resolveGroupRequireMention(params: {
 }): boolean {
   const groups = params.account.config.groups ?? {};
   const groupId = params.groupId?.trim();
-  if (groupId && typeof groups[groupId]?.requireMention === "boolean") {
-    return Boolean(groups[groupId]?.requireMention);
+  if (groupId) {
+    const direct = groups[groupId];
+    const alias = groups[`group:${groupId}`];
+    const resolved = direct ?? alias;
+    if (typeof resolved?.requireMention === "boolean") {
+      return Boolean(resolved.requireMention);
+    }
   }
   if (typeof groups["*"]?.requireMention === "boolean") {
     return Boolean(groups["*"]?.requireMention);
@@ -191,6 +206,53 @@ function resolveGroupMemberAllowFrom(params: {
   return [];
 }
 
+function resolveWechatGroupToolPolicy(
+  params: ChannelGroupContext,
+): GroupToolPolicyConfig | undefined {
+  const account = resolveWechatAccount({
+    cfg: params.cfg as OpenClawConfig,
+    accountId: params.accountId,
+  });
+  const groups = account.config.groups ?? {};
+  const groupId = params.groupId?.trim();
+  const candidates = [groupId, groupId ? `group:${groupId}` : null, "*"].filter(
+    (entry): entry is string => Boolean(entry),
+  );
+  for (const key of candidates) {
+    const entry = groups[key];
+    if (!entry) continue;
+    const senderPolicy = resolveToolsBySender({
+      toolsBySender: entry.toolsBySender,
+      senderId: params.senderId,
+      senderName: params.senderName,
+      senderUsername: params.senderUsername,
+      senderE164: params.senderE164,
+    });
+    if (senderPolicy) {
+      return senderPolicy;
+    }
+    if (entry.tools) {
+      return entry.tools;
+    }
+  }
+  return undefined;
+}
+
+type WechatInboundParams = {
+  msg: WechatMessage;
+  cfg: OpenClawConfig;
+  account: ResolvedWechatAccount;
+  statusSink?: (patch: {
+    lastInboundAt?: number;
+    lastOutboundAt?: number;
+    lastError?: string;
+  }) => void;
+};
+
+type WechatInboundDebouncer = {
+  enqueue: (item: WechatInboundParams) => Promise<void>;
+};
+
 async function deliverWechatReply(params: {
   cfg: OpenClawConfig;
   accountId: string;
@@ -210,6 +272,12 @@ async function deliverWechatReply(params: {
     accountId: params.accountId,
   });
   const text = core.channel.text.convertMarkdownTables(params.payload.text ?? "", tableMode);
+  const textLimit = core.channel.text.resolveTextChunkLimit(
+    params.cfg,
+    CHANNEL_ID,
+    params.accountId,
+    { fallbackLimit: DEFAULT_TEXT_LIMIT },
+  );
   const mediaList = params.payload.mediaUrls?.length
     ? params.payload.mediaUrls
     : params.payload.mediaUrl
@@ -224,7 +292,7 @@ async function deliverWechatReply(params: {
     );
     const chunks = core.channel.text.chunkMarkdownTextWithMode(
       text,
-      DEFAULT_TEXT_LIMIT,
+      textLimit,
       chunkMode,
     );
     const textChunks = chunks.length > 0 ? chunks : [text];
@@ -241,22 +309,26 @@ async function deliverWechatReply(params: {
   }
 }
 
-async function handleWechatInboundMessage(params: {
-  msg: WechatMessage;
-  cfg: OpenClawConfig;
-  account: ResolvedWechatAccount;
-  statusSink?: (patch: { lastInboundAt?: number; lastOutboundAt?: number; lastError?: string }) => void;
-}): Promise<void> {
+async function processWechatInboundMessage(params: WechatInboundParams): Promise<void> {
   const { msg, cfg, account } = params;
   const core = getWechatRuntime();
+  const logger = core.logging.getChildLogger({
+    channel: CHANNEL_ID,
+    accountId: account.accountId,
+  });
+  const logVerbose = (message: string) => {
+    if (core.logging.shouldLogVerbose()) {
+      logger.debug?.(message);
+    }
+  };
 
   const isGroupMsg = msg.isGroupMsg;
-  const fromWxid = isGroupMsg ? msg.actualSender || msg.fromUserName : msg.fromUserName;
+  const fromWxid = resolveWechatSenderId(msg);
   const chatId = msg.fromUserName;
   const content = msg.content?.trim() ?? "";
 
   if (!content) {
-    console.log("[WeChat] 收到空消息，已忽略");
+    logVerbose("[WeChat] 收到空消息，已忽略");
     return;
   }
 
@@ -265,14 +337,14 @@ async function handleWechatInboundMessage(params: {
   const groups = account.config.groups ?? {};
   if (isGroupMsg) {
     if (groupPolicy === "disabled") {
-      console.log(`[WeChat] 群消息已禁用，忽略：${chatId}`);
+      logVerbose(`[WeChat] 群消息已禁用，忽略：${chatId}`);
       return;
     }
     if (groupPolicy === "allowlist") {
       if (!isGroupAllowed({ groupId: chatId, groups })) {
         const memberAllowFrom = resolveGroupMemberAllowFrom({ account, groupId: chatId });
         if (!isSenderAllowed(fromWxid, memberAllowFrom)) {
-          console.log(`[WeChat] 群未在允许列表且成员未授权，忽略：${chatId}`);
+          logVerbose(`[WeChat] 群未在允许列表且成员未授权，忽略：${chatId}`);
           return;
         }
       }
@@ -283,7 +355,7 @@ async function handleWechatInboundMessage(params: {
       const mentionFlag = msg.isMentioned;
       const isAtMe = mentionFlag !== undefined && mentionFlag !== null ? Boolean(mentionFlag) : false;
       if (!isAtMe) {
-        console.log(`[WeChat] 群消息未 @，忽略：${chatId}`);
+        logVerbose(`[WeChat] 群消息未 @，忽略：${chatId}`);
         return;
       }
     }
@@ -293,8 +365,16 @@ async function handleWechatInboundMessage(params: {
   const allowFromConfig = normalizeAllowFromEntries(account.config.allowFrom);
   const rawBody = content;
   const shouldComputeAuth = core.channel.commands.shouldComputeCommandAuthorized(rawBody, cfg);
-  // 严格白名单：只使用配置 allowFrom，不读取配对存储
-  const effectiveAllowFrom = allowFromConfig;
+  const storeAllowFrom =
+    !isGroupMsg && (dmPolicy !== "open" || shouldComputeAuth)
+      ? normalizeAllowFromEntries(
+          await core.channel.pairing.readAllowFromStore(CHANNEL_ID).catch((err) => {
+            logVerbose(`[WeChat] 读取配对存储失败: ${String(err)}`);
+            return [];
+          }),
+        )
+      : [];
+  const effectiveAllowFrom = Array.from(new Set([...allowFromConfig, ...storeAllowFrom]));
   const useAccessGroups = cfg.commands?.useAccessGroups !== false;
   const senderAllowedForCommands = isSenderAllowed(fromWxid, effectiveAllowFrom);
   const commandAuthorized = shouldComputeAuth
@@ -311,7 +391,7 @@ async function handleWechatInboundMessage(params: {
 
   if (!isGroupMsg) {
     if (dmPolicy === "disabled") {
-      console.log(`[WeChat] 私聊已禁用，忽略：${fromWxid}`);
+      logVerbose(`[WeChat] 私聊已禁用，忽略：${fromWxid}`);
       return;
     }
 
@@ -323,7 +403,7 @@ async function handleWechatInboundMessage(params: {
           meta: { name: msg.senderNickname ?? undefined },
         });
         if (created) {
-          console.log(`[WeChat] 生成配对码：${fromWxid}`);
+          logger.info(`[WeChat] 生成配对码：${fromWxid}`);
           try {
             const reply = core.channel.pairing.buildPairingReply({
               channel: CHANNEL_ID,
@@ -338,11 +418,11 @@ async function handleWechatInboundMessage(params: {
               statusSink: params.statusSink,
             });
           } catch (err) {
-            console.log(`[WeChat] 发送配对码失败：${String(err)}`);
+            logger.warn(`[WeChat] 发送配对码失败：${String(err)}`);
           }
         }
       } else {
-        console.log(`[WeChat] 私聊未授权，忽略：${fromWxid}`);
+        logVerbose(`[WeChat] 私聊未授权，忽略：${fromWxid}`);
       }
       return;
     }
@@ -353,7 +433,7 @@ async function handleWechatInboundMessage(params: {
     core.channel.commands.isControlCommandMessage(rawBody, cfg) &&
     commandAuthorized !== true
   ) {
-    console.log(`[WeChat] 群控制命令未授权，忽略：${fromWxid}`);
+    logVerbose(`[WeChat] 群控制命令未授权，忽略：${fromWxid}`);
     return;
   }
 
@@ -426,7 +506,7 @@ async function handleWechatInboundMessage(params: {
         }
       : undefined,
     onRecordError: (err) => {
-      console.log(`[WeChat] 记录会话失败: ${String(err)}`);
+      logger.warn(`[WeChat] 记录会话失败: ${String(err)}`);
     },
   });
 
@@ -447,7 +527,7 @@ async function handleWechatInboundMessage(params: {
         });
       },
       onError: (err, info) => {
-        console.log(`[WeChat] ${info.kind} 回复失败: ${String(err)}`);
+        logger.error(`[WeChat] ${info.kind} 回复失败: ${String(err)}`);
       },
     },
     replyOptions: {
@@ -456,10 +536,40 @@ async function handleWechatInboundMessage(params: {
   });
 
   if (result.queuedFinal) {
-    console.log(`[WeChat] 已处理消息：${fromWxid}`);
+    logVerbose(`[WeChat] 已处理消息：${fromWxid}`);
   } else {
-    console.log(`[WeChat] 已处理消息但未生成回复：${fromWxid}`);
+    logVerbose(`[WeChat] 已处理消息但未生成回复：${fromWxid}`);
   }
+}
+
+function mergeWechatInboundMessages(entries: WechatInboundParams[]): WechatMessage {
+  const last = entries[entries.length - 1];
+  const mergedContent = entries
+    .map((entry) => entry.msg.content?.trim() ?? "")
+    .filter(Boolean)
+    .join("\n");
+  const wasMentioned = entries.some((entry) => Boolean(entry.msg.isMentioned));
+  const content = mergedContent || last.msg.content || "";
+  return {
+    ...last.msg,
+    content,
+    isMentioned: wasMentioned ? true : last.msg.isMentioned,
+  };
+}
+
+async function handleWechatInboundMessage(
+  params: WechatInboundParams & { debouncer?: WechatInboundDebouncer | null },
+): Promise<void> {
+  if (!params.debouncer) {
+    await processWechatInboundMessage(params);
+    return;
+  }
+  await params.debouncer.enqueue({
+    msg: params.msg,
+    cfg: params.cfg,
+    account: params.account,
+    statusSink: params.statusSink,
+  });
 }
 
 const meta = {
@@ -497,6 +607,7 @@ export const wechatDock: ChannelDock = {
         account: resolveWechatAccount({ cfg, accountId }),
         groupId,
       }),
+    resolveToolPolicy: resolveWechatGroupToolPolicy,
   },
   threading: {
     resolveReplyToMode: () => "off",
@@ -536,6 +647,7 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
         accountId,
         clearBaseFields: [
           "name",
+          "markdown",
           "baseUrl",
           "robotWxid",
           "dmPolicy",
@@ -544,6 +656,10 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
           "groupPolicy",
           "groups",
           "requireMention",
+          "textChunkLimit",
+          "chunkMode",
+          "blockStreaming",
+          "blockStreamingCoalesce",
         ],
       }),
     isConfigured: (account) => Boolean(account.config.baseUrl && account.config.robotWxid),
@@ -579,6 +695,14 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
         normalizeEntry: (raw) => normalizeAllowEntry(raw),
       };
     },
+  },
+  groups: {
+    resolveRequireMention: ({ cfg, accountId, groupId }) =>
+      resolveGroupRequireMention({
+        account: resolveWechatAccount({ cfg: cfg as OpenClawConfig, accountId }),
+        groupId,
+      }),
+    resolveToolPolicy: resolveWechatGroupToolPolicy,
   },
   pairing: {
     idLabel: "wechatId",
@@ -677,17 +801,28 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
   },
   outbound: {
     deliveryMode: "direct",
-    chunker: (text, limit) => getWechatRuntime().channel.text.chunkText(text, limit),
-    chunkerMode: "text",
+    chunker: (text, limit) => getWechatRuntime().channel.text.chunkMarkdownText(text, limit),
+    chunkerMode: "markdown",
     textChunkLimit: DEFAULT_TEXT_LIMIT,
     sendText: async ({ cfg, to, text, accountId }) => {
       const account = resolveWechatAccount({ cfg: cfg as OpenClawConfig, accountId });
+      const core = getWechatRuntime();
+      const logger = core.logging.getChildLogger({
+        channel: CHANNEL_ID,
+        accountId: account.accountId,
+      });
       const wsClient = getWebSocketClient(account.accountId);
       if (!wsClient || !wsClient.isConnected()) {
         throw new Error("WebSocket 未连接");
       }
-      wsClient.sendText(to, text);
-      console.log(`[WeChat] 已发送文本消息: to=${to}`);
+      const tableMode = core.channel.text.resolveMarkdownTableMode({
+        cfg,
+        channel: CHANNEL_ID,
+        accountId: account.accountId,
+      });
+      const message = core.channel.text.convertMarkdownTables(text ?? "", tableMode);
+      wsClient.sendText(to, message);
+      logger.info(`[WeChat] 已发送文本消息: to=${to}`);
       return {
         channel: CHANNEL_ID,
         messageId: String(Date.now()),
@@ -695,17 +830,28 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
     },
     sendMedia: async ({ cfg, to, text, mediaUrl, accountId }) => {
       const account = resolveWechatAccount({ cfg: cfg as OpenClawConfig, accountId });
+      const core = getWechatRuntime();
+      const logger = core.logging.getChildLogger({
+        channel: CHANNEL_ID,
+        accountId: account.accountId,
+      });
       const wsClient = getWebSocketClient(account.accountId);
       if (!wsClient || !wsClient.isConnected()) {
         throw new Error("WebSocket 未连接");
       }
-      if (text?.trim()) {
-        wsClient.sendText(to, text);
+      const tableMode = core.channel.text.resolveMarkdownTableMode({
+        cfg,
+        channel: CHANNEL_ID,
+        accountId: account.accountId,
+      });
+      const caption = core.channel.text.convertMarkdownTables(text ?? "", tableMode);
+      if (caption.trim()) {
+        wsClient.sendText(to, caption);
       }
       if (mediaUrl) {
         wsClient.sendImage(to, mediaUrl);
       }
-      console.log(`[WeChat] 已发送媒体消息: to=${to}`);
+      logger.info(`[WeChat] 已发送媒体消息: to=${to}`);
       return {
         channel: CHANNEL_ID,
         messageId: String(Date.now()),
@@ -774,6 +920,55 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
         throw new Error("缺少 baseUrl 或 robotWxid");
       }
 
+      const core = getWechatRuntime();
+      const logger = core.logging.getChildLogger({
+        channel: CHANNEL_ID,
+        accountId: account.accountId,
+      });
+      const inboundDebounceMs = core.channel.debounce.resolveInboundDebounceMs({
+        cfg,
+        channel: CHANNEL_ID,
+      });
+      const inboundDebouncer: WechatInboundDebouncer | null =
+        inboundDebounceMs > 0
+          ? core.channel.debounce.createInboundDebouncer<WechatInboundParams>({
+              debounceMs: inboundDebounceMs,
+              buildKey: (entry) => {
+                const chatId = entry.msg.fromUserName?.trim();
+                if (!chatId) {
+                  return null;
+                }
+                const senderId = resolveWechatSenderId(entry.msg);
+                if (!senderId) {
+                  return null;
+                }
+                return `${CHANNEL_ID}:${entry.account.accountId}:${chatId}:${senderId}`;
+              },
+              shouldDebounce: (entry) => {
+                const text = entry.msg.content?.trim() ?? "";
+                if (!text) {
+                  return false;
+                }
+                return !core.channel.commands.isControlCommandMessage(text, entry.cfg);
+              },
+              onFlush: async (entries) => {
+                const last = entries[entries.length - 1];
+                if (!last) {
+                  return;
+                }
+                if (entries.length === 1) {
+                  await processWechatInboundMessage(last);
+                  return;
+                }
+                const mergedMsg = mergeWechatInboundMessages(entries);
+                await processWechatInboundMessage({ ...last, msg: mergedMsg });
+              },
+              onError: (err) => {
+                logger.error(`[WeChat] 消息合并失败: ${String(err)}`);
+              },
+            })
+          : null;
+
       setStatus({
         ...getStatus(),
         accountId: account.accountId,
@@ -783,6 +978,7 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
       const wsClient = new WechatWebSocketClient({
         baseUrl: account.config.baseUrl,
         robotWxid: account.config.robotWxid,
+        logger,
         onMessage: async (msg) => {
           try {
             await handleWechatInboundMessage({
@@ -790,6 +986,7 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
               cfg,
               account,
               statusSink: (patch) => setStatus({ ...getStatus(), ...patch }),
+              debouncer: inboundDebouncer,
             });
             setStatus({
               ...getStatus(),
@@ -815,7 +1012,7 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
             lastError: null,
             lastStartAt: Date.now(),
           });
-          console.log(`[WeChat Gateway] 已连接账号: ${accountId}`);
+          logger.info(`[WeChat Gateway] 已连接账号: ${accountId}`);
         },
         onDisconnect: () => {
           setStatus({
@@ -823,7 +1020,7 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
             running: false,
             lastStopAt: Date.now(),
           });
-          console.log(`[WeChat Gateway] 连接断开: ${accountId}`);
+          logger.info(`[WeChat Gateway] 连接断开: ${accountId}`);
         },
       });
 
@@ -831,7 +1028,7 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
       await wsClient.connect();
 
       abortSignal.addEventListener("abort", () => {
-        console.log(`[WeChat Gateway] 收到终止信号，断开连接: ${accountId}`);
+        logger.info(`[WeChat Gateway] 收到终止信号，断开连接: ${accountId}`);
         wsClient.disconnect();
         wsClients.delete(account.accountId);
       });

@@ -2,7 +2,16 @@
  * 微信通道类型定义
  */
 
-import type { DmPolicy, GroupPolicy } from "openclaw/plugin-sdk";
+import type {
+  BlockStreamingCoalesceConfig,
+  ChannelLogSink,
+  ChunkMode,
+  DmPolicy,
+  GroupPolicy,
+  GroupToolPolicyBySenderConfig,
+  GroupToolPolicyConfig,
+  MarkdownConfig,
+} from "openclaw/plugin-sdk";
 
 /**
  * 微信消息结构
@@ -41,6 +50,7 @@ export interface WebSocketClientConfig {
   onError?: (error: Error) => void;
   onConnect?: () => void;
   onDisconnect?: () => void;
+  logger?: ChannelLogSink;
 }
 
 /**
@@ -53,6 +63,10 @@ export interface WechatGroupConfig {
   enabled?: boolean;
   /** 群消息是否必须 @ 才处理 */
   requireMention?: boolean;
+  /** 群内工具策略 */
+  tools?: GroupToolPolicyConfig;
+  /** 群内按成员工具策略 */
+  toolsBySender?: GroupToolPolicyBySenderConfig;
 }
 
 /**
@@ -61,6 +75,7 @@ export interface WechatGroupConfig {
 export interface WechatAccountConfig {
   name?: string;
   enabled?: boolean;
+  markdown?: MarkdownConfig;
   baseUrl?: string;
   robotWxid?: string;
   dmPolicy?: DmPolicy;
@@ -69,8 +84,14 @@ export interface WechatAccountConfig {
   groupPolicy?: GroupPolicy;
   groups?: Record<string, WechatGroupConfig>;
   requireMention?: boolean;
+  /** 单条消息分块长度上限 */
+  textChunkLimit?: number;
+  /** 分块模式 */
+  chunkMode?: ChunkMode;
   /** 是否启用 block streaming（分块实时回复） */
   blockStreaming?: boolean;
+  /** 流式分块合并参数 */
+  blockStreamingCoalesce?: BlockStreamingCoalesceConfig;
 }
 
 /**

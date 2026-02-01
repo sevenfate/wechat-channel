@@ -42,8 +42,11 @@ pnpm openclaw plugins install -l ..\wechat-channel
 channels:
   wechat-channel:
     enabled: true
-    baseUrl: "ws://localhost:8080"
+    # WebSocket 地址（支持 http/https 或 ws/wss）
+    baseUrl: "http://localhost:8080"
     robotWxid: "wxid_robot123"
+    markdown:
+      tables: "code"
     dmPolicy: "allowlist"
     allowFrom:
       - "wxid_user123"
@@ -101,6 +104,8 @@ curl http://localhost:8080/actuator/health
 ```
 
 - WebSocket 地址是否正确：
+
+baseUrl 支持 http/https 或 ws/wss，最终连接为：
 
 ```
 ws://localhost:8080/ws/robot/{robotWxid}

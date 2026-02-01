@@ -8,6 +8,8 @@
 - 私聊访问策略：pairing / allowlist / open / disabled
 - 群聊策略：groupPolicy + groups，可按群配置 requireMention
 - 群成员白名单：群不在白名单时，可允许指定成员触发（按群配置）
+- Markdown 表格渲染与分块策略
+- 支持消息去抖（messages.inbound）
 - 支持多账号
 
 ## 构建
@@ -77,8 +79,19 @@ channels:
     enabled: true
 
     # 默认账号（未配置 accounts 时使用）
-    baseUrl: "ws://localhost:8080"
+    # WebSocket 地址（支持 http/https 或 ws/wss）
+    baseUrl: "http://localhost:8080"
     robotWxid: "wxid_robot123"
+
+    # Markdown 表格渲染：off | bullets | code
+    markdown:
+      tables: "code"
+
+    # 单条消息分块长度上限（字符数）
+    # textChunkLimit: 2048
+
+    # 分块模式：length | newline
+    # chunkMode: "length"
 
     # 私聊策略：pairing | allowlist | open | disabled
     dmPolicy: "pairing"
@@ -97,6 +110,13 @@ channels:
       "123456789@chatroom":
         allow: true
         requireMention: true
+        # tools:
+        #   allow:
+        #     - "message.send"
+        # toolsBySender:
+        #   "wxid_member123":
+        #     deny:
+        #       - "*"
       "*":
         requireMention: true
 
@@ -108,14 +128,27 @@ channels:
     # 分块实时回复（建议开启）
     blockStreaming: true
 
+    # 流式分块合并（可选）
+    # blockStreamingCoalesce:
+    #   minChars: 800
+    #   maxChars: 1200
+    #   idleMs: 1000
+
     # 多账号（可选）
     accounts:
       work:
-        baseUrl: "ws://localhost:8080"
+        baseUrl: "http://localhost:8080"
         robotWxid: "wxid_robot456"
         dmPolicy: "allowlist"
         allowFrom:
           - "wxid_user789"
+
+# 全局消息去抖（可选）
+messages:
+  inbound:
+    # debounceMs: 600
+    # byChannel:
+    #   wechat-channel: 600
 ```
 
 ## 说明
@@ -123,10 +156,17 @@ channels:
 - `allowFrom` 仅用于私聊；群聊请使用 `groupPolicy + groups`。
 - `groups` 的 key 为群 ID（chatroom），支持 `"*"` 作为默认规则。
 - `requireMention` 默认 `true`，用于控制群消息是否必须 @ 才处理。
+- `groups.*.tools` / `groups.*.toolsBySender` 可限制群内工具调用范围。
+- `markdown.tables` 控制表格渲染（off/bullets/code）。
+- `textChunkLimit` 与 `chunkMode` 控制消息分块策略。
 - `blockStreaming` 用于开启分块实时回复，默认开启（可关闭）。
+- `blockStreamingCoalesce` 用于合并流式分块，避免过碎的短消息。
 - `groupMembers` 用于群成员白名单：群不在白名单时，仍可允许指定成员触发。
+- `messages.inbound` 可配置消息去抖（支持按通道覆盖）。
 
 ## WebSocket 地址
+
+baseUrl 支持 http/https 或 ws/wss，最终连接为：
 
 ```
 ws://<host>:<port>/ws/robot/{robotWxid}

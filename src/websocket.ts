@@ -15,6 +15,10 @@ export class WechatWebSocketClient {
     this.robotWxid = options.robotWxid;
   }
 
+  private get logger() {
+    return this.options.logger ?? console;
+  }
+
   /**
    * 连接 WebSocket
    */
@@ -23,12 +27,12 @@ export class WechatWebSocketClient {
       .replace("http://", "ws://")
       .replace("https://", "wss://")}/ws/robot/${this.robotWxid}`;
 
-    console.log(`[WeChat WebSocket] 正在连接: ${url}`);
+    this.logger.info(`[WeChat WebSocket] 正在连接: ${url}`);
 
     this.ws = new WebSocket(url);
 
     this.ws.onopen = () => {
-      console.log("[WeChat WebSocket] 连接成功");
+      this.logger.info("[WeChat WebSocket] 连接成功");
       this.reconnectAttempts = 0;
       this.options.onConnect?.();
 
@@ -51,37 +55,37 @@ export class WechatWebSocketClient {
 
           case "ping":
             // 收到 ping（保持连接）
-            console.debug("[WeChat WebSocket] 收到 ping");
+            this.logger.debug?.("[WeChat WebSocket] 收到 ping");
             break;
 
           case "error":
-            console.error("[WeChat WebSocket] 错误:", message.message);
+            this.logger.error(`[WeChat WebSocket] 错误: ${message.message}`);
             this.options.onError?.(new Error(message.message));
             break;
 
           case "auth":
-            console.log("[WeChat WebSocket] 鉴权响应:", message);
+            this.logger.info(`[WeChat WebSocket] 鉴权响应: ${JSON.stringify(message)}`);
             break;
 
           case "send_result":
-            console.debug("[WeChat WebSocket] 发送结果:", message);
+            this.logger.debug?.(`[WeChat WebSocket] 发送结果: ${JSON.stringify(message)}`);
             break;
 
           default:
-            console.warn("[WeChat WebSocket] 未知消息类型:", message);
+            this.logger.warn(`[WeChat WebSocket] 未知消息类型: ${JSON.stringify(message)}`);
         }
       } catch (error) {
-        console.error("[WeChat WebSocket] 处理消息失败:", error);
+        this.logger.error(`[WeChat WebSocket] 处理消息失败: ${String(error)}`);
       }
     };
 
     this.ws.onerror = (error) => {
-      console.error("[WeChat WebSocket] 错误:", error);
+      this.logger.error(`[WeChat WebSocket] 错误: ${String(error)}`);
       this.options.onError?.(new Error("WebSocket 错误"));
     };
 
     this.ws.onclose = () => {
-      console.log("[WeChat WebSocket] 连接断开");
+      this.logger.info("[WeChat WebSocket] 连接断开");
       this.options.onDisconnect?.();
 
       // 安排重连
@@ -109,13 +113,13 @@ export class WechatWebSocketClient {
    */
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error("[WeChat WebSocket] 重连次数已达上限");
+      this.logger.error("[WeChat WebSocket] 重连次数已达上限");
       return;
     }
 
     this.reconnectAttempts++;
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000); // 指数退避，上限 30 秒
-    console.log(
+    this.logger.info(
       `[WeChat WebSocket] ${delay}ms 后重连（${this.reconnectAttempts}/${this.maxReconnectAttempts}）`,
     );
 
@@ -131,7 +135,7 @@ export class WechatWebSocketClient {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data));
     } else {
-      console.warn("[WeChat WebSocket] 未连接，发送失败");
+      this.logger.warn("[WeChat WebSocket] 未连接，发送失败");
     }
   }
 

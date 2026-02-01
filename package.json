@@ -1,5 +1,5 @@
 {
-  "name": "@clawdbot/wechat-channel",
+  "name": "@openclaw/wechat-channel",
   "version": "0.1.0",
   "type": "module",
   "description": "微信通道插件（WebSocket）",
@@ -21,7 +21,7 @@
       "quickstartAllowFrom": true
     },
     "install": {
-      "npmSpec": "@clawdbot/wechat-channel",
+      "npmSpec": "@openclaw/wechat-channel",
       "localPath": "extensions/wechat-channel",
       "defaultChoice": "local"
     }

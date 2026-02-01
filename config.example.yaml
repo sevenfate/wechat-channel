@@ -6,8 +6,19 @@ channels:
     enabled: true
 
     # 默认账号配置（无需 accounts 时使用）
-    baseUrl: "ws://localhost:8080"
+    # WebSocket 地址（支持 http/https 或 ws/wss）
+    baseUrl: "http://localhost:8080"
     robotWxid: "wxid_robot123"
+
+    # Markdown 表格渲染：off | bullets | code
+    markdown:
+      tables: "code"
+
+    # 单条消息分块长度上限（字符数）
+    # textChunkLimit: 2048
+
+    # 分块模式：length | newline
+    # chunkMode: "length"
 
     # 私聊访问策略：pairing | allowlist | open | disabled
     dmPolicy: "allowlist"
@@ -26,6 +37,13 @@ channels:
       "123456789@chatroom":
         allow: true
         requireMention: true
+        # tools:
+        #   allow:
+        #     - "message.send"
+        # toolsBySender:
+        #   "wxid_member123":
+        #     deny:
+        #       - "*"
       "987654321@chatroom":
         allow: true
         requireMention: false
@@ -40,11 +58,24 @@ channels:
     # 分块实时回复（建议开启）
     blockStreaming: true
 
+    # 流式分块合并（可选）
+    # blockStreamingCoalesce:
+    #   minChars: 800
+    #   maxChars: 1200
+    #   idleMs: 1000
+
     # 多账号配置（可选）
     # accounts:
     #   work:
-    #     baseUrl: "ws://localhost:8080"
+    #     baseUrl: "http://localhost:8080"
     #     robotWxid: "wxid_robot456"
     #     dmPolicy: "allowlist"
     #     allowFrom:
     #       - "wxid_user789"
+
+# 全局消息去抖（可选）
+# messages:
+#   inbound:
+#     # debounceMs: 600
+#     # byChannel:
+#     #   wechat-channel: 600
