@@ -163,6 +163,60 @@ export class WechatWebSocketClient {
   }
 
   /**
+   * 发送语音消息
+   */
+  sendVoice(toWxid: string, voiceUrl: string, voiceDuration?: number): void {
+    this.send({
+      type: "send_voice",
+      toWxid,
+      voiceUrl,
+      voiceDuration,
+    });
+  }
+
+  /**
+   * 发送视频消息
+   */
+  sendVideo(
+    toWxid: string,
+    videoUrl: string,
+    thumbUrl?: string,
+    videoDuration?: number,
+  ): void {
+    this.send({
+      type: "send_video",
+      toWxid,
+      videoUrl,
+      thumbUrl,
+      videoDuration,
+    });
+  }
+
+  /**
+   * 发送 Emoji 消息
+   */
+  sendEmoji(toWxid: string, emojiMd5: string, emojiSize: string): void {
+    this.send({
+      type: "send_emoji",
+      toWxid,
+      emojiMd5,
+      emojiSize,
+    });
+  }
+
+  /**
+   * 发送文件消息
+   */
+  sendFile(toWxid: string, fileUrl: string, fileName: string): void {
+    this.send({
+      type: "send_file",
+      toWxid,
+      fileUrl,
+      fileName,
+    });
+  }
+
+  /**
    * 标记消息已处理
    */
   markProcessed(messageIds: number[]): void {

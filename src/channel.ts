@@ -4,6 +4,7 @@ import type {
   ChannelGatewayContext,
   ChannelGroupContext,
   ChannelLogSink,
+  ChannelMessageActionAdapter,
   ChannelPlugin,
   OpenClawConfig,
   ChannelStatusIssue,
@@ -14,8 +15,13 @@ import {
   DEFAULT_ACCOUNT_ID,
   deleteAccountFromConfigSection,
   formatPairingApproveHint,
+  getFileExtension,
+  jsonResult,
   migrateBaseNameToDefaultAccount,
   normalizeAccountId,
+  readNumberParam,
+  readStringArrayParam,
+  readStringParam,
   resolveToolsBySender,
   setAccountEnabledInConfigSection,
   PAIRING_APPROVED_MESSAGE,
@@ -34,6 +40,297 @@ import { getWechatRuntime } from "./runtime.js";
 
 const CHANNEL_ID = "wechat-channel" as const;
 const DEFAULT_TEXT_LIMIT = 2048;
+const AUDIO_EXTS = new Set([
+  ".silk",
+  ".amr",
+  ".mp3",
+  ".wav",
+  ".m4a",
+  ".aac",
+  ".ogg",
+  ".opus",
+  ".flac",
+]);
+const VIDEO_EXTS = new Set([
+  ".mp4",
+  ".mov",
+  ".mkv",
+  ".webm",
+  ".avi",
+  ".mpeg",
+  ".mpg",
+]);
+const IMAGE_EXTS = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".gif",
+  ".webp",
+  ".bmp",
+  ".heic",
+  ".heif",
+]);
+
+type MediaKind = "image" | "voice" | "video" | "file" | "emoji";
+
+type MediaUrlMeta = {
+  isEmojiScheme: boolean;
+  emojiMd5?: string;
+  emojiSize?: string;
+  voiceDuration?: number;
+  videoDuration?: number;
+  thumbUrl?: string;
+  fileName?: string;
+};
+
+type MediaHints = {
+  contentType?: string;
+  asVoice?: boolean;
+  fileName?: string;
+  voiceDuration?: number;
+  videoDuration?: number;
+  thumbUrl?: string;
+  emojiMd5?: string;
+  emojiSize?: string;
+};
+
+type ResolvedMediaSpec = {
+  kind: MediaKind;
+  mediaUrl?: string;
+  fileName?: string;
+  voiceDuration?: number;
+  videoDuration?: number;
+  thumbUrl?: string;
+  emojiMd5?: string;
+  emojiSize?: string;
+  isEmojiScheme?: boolean;
+};
+
+function parseDuration(raw?: string | null): number | undefined {
+  if (!raw) return undefined;
+  const parsed = Number.parseFloat(raw);
+  if (!Number.isFinite(parsed)) return undefined;
+  return Math.trunc(parsed);
+}
+
+function readQueryValue(params: URLSearchParams, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = params.get(key);
+    if (value && value.trim()) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function parseMediaUrlMeta(mediaUrl: string): MediaUrlMeta {
+  const trimmed = mediaUrl.trim();
+  if (!trimmed) {
+    return { isEmojiScheme: false };
+  }
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith("emoji:")) {
+    const withoutScheme = trimmed.slice("emoji:".length).replace(/^\/\//, "");
+    const [pathPart, queryPart] = withoutScheme.split("?", 2);
+    const searchParams = new URLSearchParams(queryPart ?? "");
+    const pathToken = pathPart?.split("/").filter(Boolean)[0] ?? "";
+    const [md5Token, sizeToken] = pathToken.includes(":")
+      ? (pathToken.split(":", 2) as [string, string])
+      : [pathToken, ""];
+    const emojiMd5 =
+      md5Token?.trim() || readQueryValue(searchParams, ["emojiMd5", "md5"]);
+    const emojiSize =
+      sizeToken?.trim() || readQueryValue(searchParams, ["emojiSize", "size"]);
+    return {
+      isEmojiScheme: true,
+      emojiMd5: emojiMd5?.trim() || undefined,
+      emojiSize: emojiSize?.trim() || undefined,
+    };
+  }
+
+  try {
+    const url = new URL(trimmed);
+    const searchParams = url.searchParams;
+    const emojiMd5 = readQueryValue(searchParams, ["emojiMd5", "md5"]);
+    const emojiSize = readQueryValue(searchParams, ["emojiSize", "size"]);
+    const thumbUrl = readQueryValue(searchParams, ["thumbUrl", "thumb"]);
+    const duration = parseDuration(readQueryValue(searchParams, ["duration"]));
+    const voiceDuration = parseDuration(
+      readQueryValue(searchParams, ["voiceDuration"]),
+    );
+    const videoDuration = parseDuration(
+      readQueryValue(searchParams, ["videoDuration"]),
+    );
+    const fileName = readQueryValue(searchParams, ["fileName", "filename", "name"]);
+    return {
+      isEmojiScheme: false,
+      emojiMd5: emojiMd5?.trim() || undefined,
+      emojiSize: emojiSize?.trim() || undefined,
+      thumbUrl: thumbUrl?.trim() || undefined,
+      voiceDuration: voiceDuration ?? duration,
+      videoDuration: videoDuration ?? duration,
+      fileName: fileName?.trim() || undefined,
+    };
+  } catch {
+    return { isEmojiScheme: false };
+  }
+}
+
+function inferFileNameFromMediaUrl(mediaUrl: string): string | undefined {
+  const trimmed = mediaUrl.trim();
+  if (!trimmed) return undefined;
+  try {
+    const url = new URL(trimmed);
+    const parts = url.pathname.split("/").filter(Boolean);
+    const last = parts[parts.length - 1];
+    if (!last) return undefined;
+    try {
+      return decodeURIComponent(last);
+    } catch {
+      return last;
+    }
+  } catch {
+    const cleaned = trimmed.split(/[?#]/)[0];
+    const parts = cleaned.split(/[\\/]/);
+    const last = parts[parts.length - 1];
+    return last || undefined;
+  }
+}
+
+function resolveMediaSpec(params: {
+  mediaUrl: string;
+  hints?: MediaHints;
+}): ResolvedMediaSpec {
+  const meta = parseMediaUrlMeta(params.mediaUrl);
+  const hints = params.hints ?? {};
+  const emojiMd5 = hints.emojiMd5 ?? meta.emojiMd5;
+  const emojiSize = hints.emojiSize ?? meta.emojiSize;
+  if (meta.isEmojiScheme || (emojiMd5 && emojiSize)) {
+    return {
+      kind: "emoji",
+      emojiMd5,
+      emojiSize,
+      mediaUrl: params.mediaUrl,
+      isEmojiScheme: meta.isEmojiScheme,
+    };
+  }
+
+  const contentType = hints.contentType?.toLowerCase();
+  let kind: MediaKind = "file";
+  if (hints.asVoice) {
+    kind = "voice";
+  } else if (contentType?.startsWith("audio/")) {
+    kind = "voice";
+  } else if (contentType?.startsWith("video/")) {
+    kind = "video";
+  } else if (contentType?.startsWith("image/")) {
+    kind = "image";
+  } else {
+    const ext = getFileExtension(hints.fileName ?? params.mediaUrl);
+    if (ext && AUDIO_EXTS.has(ext)) {
+      kind = "voice";
+    } else if (ext && VIDEO_EXTS.has(ext)) {
+      kind = "video";
+    } else if (ext && IMAGE_EXTS.has(ext)) {
+      kind = "image";
+    }
+  }
+
+  return {
+    kind,
+    mediaUrl: params.mediaUrl,
+    fileName: hints.fileName ?? meta.fileName ?? inferFileNameFromMediaUrl(params.mediaUrl),
+    voiceDuration: hints.voiceDuration ?? meta.voiceDuration,
+    videoDuration: hints.videoDuration ?? meta.videoDuration,
+    thumbUrl: hints.thumbUrl ?? meta.thumbUrl,
+    emojiMd5,
+    emojiSize,
+    isEmojiScheme: meta.isEmojiScheme,
+  };
+}
+
+async function sendWechatMedia(params: {
+  wsClient: WechatWebSocketClient;
+  chatId: string;
+  mediaUrl: string;
+  hints?: MediaHints;
+  strict?: boolean;
+  logger?: ChannelLogSink;
+  statusSink?: (patch: { lastOutboundAt?: number }) => void;
+}): Promise<void> {
+  const trimmed = params.mediaUrl?.trim();
+  if (!trimmed) return;
+
+  const spec = resolveMediaSpec({ mediaUrl: trimmed, hints: params.hints });
+  const strict = params.strict ?? false;
+  const statusSink = params.statusSink;
+  const logger = params.logger;
+
+  const fallbackToFile = () => {
+    const inferredName = spec.fileName ?? inferFileNameFromMediaUrl(trimmed);
+    const ext = getFileExtension(trimmed);
+    const fileName = inferredName ?? (ext ? `file${ext}` : "file");
+    if (!fileName) {
+      if (strict) {
+        throw new Error("fileName required for file send");
+      }
+      logger?.warn?.("[WeChat] Missing fileName; skip file send.");
+      return;
+    }
+    params.wsClient.sendFile(params.chatId, trimmed, fileName);
+    statusSink?.({ lastOutboundAt: Date.now() });
+  };
+
+  if (spec.kind === "emoji") {
+    if (!spec.emojiMd5 || !spec.emojiSize) {
+      const message = "emojiMd5 and emojiSize are required for emoji send";
+      if (strict) {
+        throw new Error(message);
+      }
+      logger?.warn?.(`[WeChat] ${message}`);
+      return;
+    }
+    params.wsClient.sendEmoji(params.chatId, spec.emojiMd5, spec.emojiSize);
+    statusSink?.({ lastOutboundAt: Date.now() });
+    return;
+  }
+
+  if (spec.kind === "voice") {
+    if (spec.voiceDuration === undefined || spec.voiceDuration === null) {
+      if (strict) {
+        throw new Error("voiceDuration required for voice send");
+      }
+      logger?.warn?.("[WeChat] voiceDuration missing; fallback to file send.");
+      fallbackToFile();
+      return;
+    }
+    params.wsClient.sendVoice(params.chatId, trimmed, spec.voiceDuration);
+    statusSink?.({ lastOutboundAt: Date.now() });
+    return;
+  }
+
+  if (spec.kind === "video") {
+    if (!spec.thumbUrl || spec.videoDuration === undefined || spec.videoDuration === null) {
+      if (strict) {
+        throw new Error("thumbUrl and videoDuration required for video send");
+      }
+      logger?.warn?.("[WeChat] video metadata missing; fallback to file send.");
+      fallbackToFile();
+      return;
+    }
+    params.wsClient.sendVideo(params.chatId, trimmed, spec.thumbUrl, spec.videoDuration);
+    statusSink?.({ lastOutboundAt: Date.now() });
+    return;
+  }
+
+  if (spec.kind === "image") {
+    params.wsClient.sendImage(params.chatId, trimmed);
+    statusSink?.({ lastOutboundAt: Date.now() });
+    return;
+  }
+
+  fallbackToFile();
+}
 
 /**
  * WebSocket 客户端缓存
@@ -150,6 +447,15 @@ function resolveWechatAccount(params: {
     enabled,
     config: merged,
   };
+}
+
+function hasConfiguredWechatAccount(cfg: OpenClawConfig): boolean {
+  return listWechatAccountIds(cfg).some((accountId) => {
+    const account = resolveWechatAccount({ cfg, accountId });
+    return Boolean(
+      account.enabled && account.config.baseUrl && account.config.robotWxid,
+    );
+  });
 }
 
 function normalizeWechatTarget(raw?: string | null): string | undefined {
@@ -305,6 +611,11 @@ async function deliverWechatReply(params: {
   statusSink?: (patch: { lastOutboundAt?: number }) => void;
 }): Promise<void> {
   const core = getWechatRuntime();
+  const account = resolveWechatAccount({
+    cfg: params.cfg,
+    accountId: params.accountId,
+  });
+  const logger = createWechatLogger(account);
   const wsClient = getWebSocketClient(params.accountId);
   if (!wsClient || !wsClient.isConnected()) {
     throw new Error("WebSocket 未连接");
@@ -348,8 +659,13 @@ async function deliverWechatReply(params: {
 
   for (const mediaUrl of mediaList) {
     if (!mediaUrl) continue;
-    wsClient.sendImage(params.chatId, mediaUrl);
-    params.statusSink?.({ lastOutboundAt: Date.now() });
+    await sendWechatMedia({
+      wsClient,
+      chatId: params.chatId,
+      mediaUrl,
+      logger,
+      statusSink: params.statusSink,
+    });
   }
 }
 
@@ -655,6 +971,144 @@ export const wechatDock: ChannelDock = {
   },
 };
 
+const wechatMessageActions: ChannelMessageActionAdapter = {
+  listActions: ({ cfg }) => {
+    if (!hasConfiguredWechatAccount(cfg as OpenClawConfig)) {
+      return [];
+    }
+    return ["sendAttachment", "sticker"];
+  },
+  supportsAction: ({ action }) => action === "sendAttachment" || action === "sticker",
+  handleAction: async ({ action, params, cfg, accountId }) => {
+    const account = resolveWechatAccount({
+      cfg: cfg as OpenClawConfig,
+      accountId,
+    });
+    const wsClient = getWebSocketClient(account.accountId);
+    if (!wsClient || !wsClient.isConnected()) {
+      throw new Error("WebSocket 未连接");
+    }
+    const to =
+      readStringParam(params, "to") ??
+      readStringParam(params, "target", { required: true, label: "target" });
+
+    if (action === "sendAttachment") {
+      const mediaUrl =
+        readStringParam(params, "media", { trim: false }) ??
+        readStringParam(params, "path", { trim: false }) ??
+        readStringParam(params, "filePath", { trim: false });
+      if (!mediaUrl) {
+        throw new Error("media required");
+      }
+
+      const caption =
+        readStringParam(params, "caption", { allowEmpty: true }) ??
+        readStringParam(params, "message", { allowEmpty: true }) ??
+        "";
+      if (caption.trim()) {
+        await deliverWechatReply({
+          cfg: cfg as OpenClawConfig,
+          accountId: account.accountId,
+          chatId: to,
+          payload: { text: caption },
+        });
+      }
+
+      const contentType =
+        readStringParam(params, "contentType") ?? readStringParam(params, "mimeType");
+      const asVoice = typeof params.asVoice === "boolean" ? params.asVoice : undefined;
+      const fileName = readStringParam(params, "filename");
+      const voiceDuration =
+        readNumberParam(params, "voiceDuration") ?? readNumberParam(params, "duration");
+      const videoDuration =
+        readNumberParam(params, "videoDuration") ?? readNumberParam(params, "duration");
+      const thumbUrl =
+        readStringParam(params, "thumbUrl", { trim: false }) ??
+        readStringParam(params, "thumb", { trim: false });
+      const emojiMd5 =
+        readStringParam(params, "emojiMd5") ?? readStringParam(params, "md5");
+      const emojiSize =
+        readStringParam(params, "emojiSize") ?? readStringParam(params, "size");
+
+      await sendWechatMedia({
+        wsClient,
+        chatId: to,
+        mediaUrl,
+        hints: {
+          contentType,
+          asVoice,
+          fileName,
+          voiceDuration: voiceDuration ?? undefined,
+          videoDuration: videoDuration ?? undefined,
+          thumbUrl: thumbUrl ?? undefined,
+          emojiMd5: emojiMd5 ?? undefined,
+          emojiSize: emojiSize ?? undefined,
+        },
+        strict: true,
+        logger: createWechatLogger(account),
+      });
+
+      return jsonResult({
+        ok: true,
+        action,
+        to,
+      });
+    }
+
+    if (action === "sticker") {
+      const stickerIds = readStringArrayParam(params, "stickerId");
+      const stickerToken = stickerIds?.[0];
+      const [stickerMd5, stickerSize] = stickerToken?.includes(":")
+        ? (stickerToken.split(":", 2) as [string, string])
+        : [stickerToken ?? "", ""];
+      const normalizedStickerMd5 = stickerMd5?.trim() || undefined;
+      const normalizedStickerSize = stickerSize?.trim() || undefined;
+      const emojiMd5 =
+        readStringParam(params, "emojiMd5") ??
+        readStringParam(params, "md5") ??
+        normalizedStickerMd5 ??
+        readStringParam(params, "emojiName") ??
+        readStringParam(params, "stickerName");
+      const emojiSizeString =
+        readStringParam(params, "emojiSize") ??
+        normalizedStickerSize ??
+        readStringParam(params, "stickerDesc") ??
+        readStringParam(params, "stickerTags");
+      const emojiSizeNumber = readNumberParam(params, "emojiSize");
+      const emojiSize =
+        emojiSizeString ?? (emojiSizeNumber !== undefined ? String(emojiSizeNumber) : undefined);
+
+      if (!emojiMd5 || !emojiSize) {
+        throw new Error("emojiMd5 and emojiSize required");
+      }
+
+      const message =
+        readStringParam(params, "message", { allowEmpty: true }) ??
+        readStringParam(params, "caption", { allowEmpty: true }) ??
+        "";
+      if (message.trim()) {
+        await deliverWechatReply({
+          cfg: cfg as OpenClawConfig,
+          accountId: account.accountId,
+          chatId: to,
+          payload: { text: message },
+        });
+      }
+
+      wsClient.sendEmoji(to, emojiMd5, emojiSize);
+      return jsonResult({
+        ok: true,
+        action,
+        to,
+        emojiMd5,
+        emojiSize,
+      });
+    }
+
+    throw new Error(`Action ${action} is not supported for channel ${CHANNEL_ID}.`);
+  },
+};
+
 export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
   id: CHANNEL_ID,
   meta,
@@ -745,6 +1199,7 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
       }),
     resolveToolPolicy: resolveWechatGroupToolPolicy,
   },
+  actions: wechatMessageActions,
   pairing: {
     idLabel: "wechatId",
     normalizeAllowEntry: (entry) => normalizeAllowEntry(entry),
@@ -884,7 +1339,12 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
         wsClient.sendText(to, caption);
       }
       if (mediaUrl) {
-        wsClient.sendImage(to, mediaUrl);
+        await sendWechatMedia({
+          wsClient,
+          chatId: to,
+          mediaUrl,
+          logger,
+        });
       }
       logger.info(`[WeChat] 已发送媒体消息: to=${to}`);
       return {

@@ -38,7 +38,7 @@ export type WebSocketMessage =
   | { type: "message"; data: WechatMessage }
   | { type: "ping"; timestamp: number }
   | { type: "error"; message: string }
-  | { type: "send_result"; success: boolean; messageId?: string };
+  | { type: "send_result"; success: boolean; messageId?: string; error?: string };
 
 /**
  * WebSocket 客户端配置
