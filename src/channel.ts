@@ -689,6 +689,10 @@ async function processWechatInboundMessage(params: WechatInboundParams): Promise
     return;
   }
 
+  // 打印接收到的消息内容
+  const senderName = msg.senderNickname ?? fromWxid;
+  logger.info(`[WeChat] 收到消息: 发送者=${senderName} (${fromWxid}), 聊天=${chatId}, 内容=${content}`);
+
   const defaultGroupPolicy = cfg.channels?.defaults?.groupPolicy;
   const groupPolicy = account.config.groupPolicy ?? defaultGroupPolicy ?? "allowlist";
   const groups = account.config.groups ?? {};
