@@ -258,6 +258,7 @@ async function sendWechatMedia(params: {
   logger?: ChannelLogSink;
   statusSink?: (patch: { lastOutboundAt?: number }) => void;
 }): Promise<void> {
+  const chatId = requireWechatOutboundTarget(params.chatId);
   const trimmed = params.mediaUrl?.trim();
   if (!trimmed) return;
 
@@ -277,7 +278,7 @@ async function sendWechatMedia(params: {
       logger?.warn?.("[WeChat] Missing fileName; skip file send.");
       return;
     }
-    params.wsClient.sendFile(params.chatId, trimmed, fileName);
+    params.wsClient.sendFile(chatId, trimmed, fileName);
     statusSink?.({ lastOutboundAt: Date.now() });
   };
 
@@ -290,7 +291,7 @@ async function sendWechatMedia(params: {
       logger?.warn?.(`[WeChat] ${message}`);
       return;
     }
-    params.wsClient.sendEmoji(params.chatId, spec.emojiMd5, spec.emojiSize);
+    params.wsClient.sendEmoji(chatId, spec.emojiMd5, spec.emojiSize);
     statusSink?.({ lastOutboundAt: Date.now() });
     return;
   }
@@ -304,7 +305,7 @@ async function sendWechatMedia(params: {
       fallbackToFile();
       return;
     }
-    params.wsClient.sendVoice(params.chatId, trimmed, spec.voiceDuration);
+    params.wsClient.sendVoice(chatId, trimmed, spec.voiceDuration);
     statusSink?.({ lastOutboundAt: Date.now() });
     return;
   }
@@ -318,13 +319,13 @@ async function sendWechatMedia(params: {
       fallbackToFile();
       return;
     }
-    params.wsClient.sendVideo(params.chatId, trimmed, spec.thumbUrl, spec.videoDuration);
+    params.wsClient.sendVideo(chatId, trimmed, spec.thumbUrl, spec.videoDuration);
     statusSink?.({ lastOutboundAt: Date.now() });
     return;
   }
 
   if (spec.kind === "image") {
-    params.wsClient.sendImage(params.chatId, trimmed);
+    params.wsClient.sendImage(chatId, trimmed);
     statusSink?.({ lastOutboundAt: Date.now() });
     return;
   }
@@ -462,6 +463,20 @@ function normalizeWechatTarget(raw?: string | null): string | undefined {
   const trimmed = raw?.trim();
   if (!trimmed) return undefined;
   return trimmed.replace(/^(wechat-channel|wechat|wx):/i, "");
+}
+
+function resolveWechatOutboundTarget(raw?: string | null): string | undefined {
+  const trimmed = raw?.trim();
+  if (!trimmed) return undefined;
+  return normalizeWechatTarget(trimmed) ?? trimmed;
+}
+
+function requireWechatOutboundTarget(raw?: string | null): string {
+  const resolved = resolveWechatOutboundTarget(raw);
+  if (!resolved) {
+    throw new Error("微信目标不能为空");
+  }
+  return resolved;
 }
 
 function normalizeAllowEntry(entry: string | number): string {
@@ -620,6 +635,7 @@ async function deliverWechatReply(params: {
   if (!wsClient || !wsClient.isConnected()) {
     throw new Error("WebSocket 未连接");
   }
+  const chatId = requireWechatOutboundTarget(params.chatId);
 
   const tableMode = core.channel.text.resolveMarkdownTableMode({
     cfg: params.cfg,
@@ -652,7 +668,7 @@ async function deliverWechatReply(params: {
     );
     const textChunks = chunks.length > 0 ? chunks : [text];
     for (const chunk of textChunks) {
-      wsClient.sendText(params.chatId, chunk);
+      wsClient.sendText(chatId, chunk);
       params.statusSink?.({ lastOutboundAt: Date.now() });
     }
   }
@@ -661,7 +677,7 @@ async function deliverWechatReply(params: {
     if (!mediaUrl) continue;
     await sendWechatMedia({
       wsClient,
-      chatId: params.chatId,
+      chatId,
       mediaUrl,
       logger,
       statusSink: params.statusSink,
@@ -995,6 +1011,7 @@ const wechatMessageActions: ChannelMessageActionAdapter = {
     const to =
       readStringParam(params, "to") ??
       readStringParam(params, "target", { required: true, label: "target" });
+    const target = requireWechatOutboundTarget(to);
 
     if (action === "sendAttachment") {
       const mediaUrl =
@@ -1013,7 +1030,7 @@ const wechatMessageActions: ChannelMessageActionAdapter = {
         await deliverWechatReply({
           cfg: cfg as OpenClawConfig,
           accountId: account.accountId,
-          chatId: to,
+          chatId: target,
           payload: { text: caption },
         });
       }
@@ -1036,7 +1053,7 @@ const wechatMessageActions: ChannelMessageActionAdapter = {
 
       await sendWechatMedia({
         wsClient,
-        chatId: to,
+        chatId: target,
         mediaUrl,
         hints: {
           contentType,
@@ -1055,7 +1072,7 @@ const wechatMessageActions: ChannelMessageActionAdapter = {
       return jsonResult({
         ok: true,
         action,
-        to,
+        to: target,
       });
     }
 
@@ -1094,16 +1111,16 @@ const wechatMessageActions: ChannelMessageActionAdapter = {
         await deliverWechatReply({
           cfg: cfg as OpenClawConfig,
           accountId: account.accountId,
-          chatId: to,
+          chatId: target,
           payload: { text: message },
         });
       }
 
-      wsClient.sendEmoji(to, emojiMd5, emojiSize);
+      wsClient.sendEmoji(target, emojiMd5, emojiSize);
       return jsonResult({
         ok: true,
         action,
-        to,
+        to: target,
         emojiMd5,
         emojiSize,
       });
@@ -1217,7 +1234,8 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
       if (!wsClient || !wsClient.isConnected()) {
         throw new Error("WebSocket 未连接，无法发送配对确认");
       }
-      wsClient.sendText(id, PAIRING_APPROVED_MESSAGE);
+      const target = requireWechatOutboundTarget(id);
+      wsClient.sendText(target, PAIRING_APPROVED_MESSAGE);
     },
   },
   setup: {
@@ -1304,6 +1322,16 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
     chunker: (text, limit) => getWechatRuntime().channel.text.chunkMarkdownText(text, limit),
     chunkerMode: "markdown",
     textChunkLimit: DEFAULT_TEXT_LIMIT,
+    resolveTarget: ({ to }) => {
+      const normalized = resolveWechatOutboundTarget(to);
+      if (!normalized) {
+        return {
+          ok: false,
+          error: new Error("微信目标不能为空"),
+        };
+      }
+      return { ok: true, to: normalized };
+    },
     sendText: async ({ cfg, to, text, accountId }) => {
       const account = resolveWechatAccount({ cfg: cfg as OpenClawConfig, accountId });
       const core = getWechatRuntime();
@@ -1312,14 +1340,15 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
       if (!wsClient || !wsClient.isConnected()) {
         throw new Error("WebSocket 未连接");
       }
+      const target = requireWechatOutboundTarget(to);
       const tableMode = core.channel.text.resolveMarkdownTableMode({
         cfg,
         channel: CHANNEL_ID,
         accountId: account.accountId,
       });
       const message = core.channel.text.convertMarkdownTables(text ?? "", tableMode);
-      wsClient.sendText(to, message);
-      logger.info(`[WeChat] 已发送文本消息: to=${to}`);
+      wsClient.sendText(target, message);
+      logger.info(`[WeChat] 已发送文本消息: to=${target}`);
       return {
         channel: CHANNEL_ID,
         messageId: String(Date.now()),
@@ -1333,6 +1362,7 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
       if (!wsClient || !wsClient.isConnected()) {
         throw new Error("WebSocket 未连接");
       }
+      const target = requireWechatOutboundTarget(to);
       const tableMode = core.channel.text.resolveMarkdownTableMode({
         cfg,
         channel: CHANNEL_ID,
@@ -1340,17 +1370,17 @@ export const wechatPlugin: ChannelPlugin<ResolvedWechatAccount> = {
       });
       const caption = core.channel.text.convertMarkdownTables(text ?? "", tableMode);
       if (caption.trim()) {
-        wsClient.sendText(to, caption);
+        wsClient.sendText(target, caption);
       }
       if (mediaUrl) {
         await sendWechatMedia({
           wsClient,
-          chatId: to,
+          chatId: target,
           mediaUrl,
           logger,
         });
       }
-      logger.info(`[WeChat] 已发送媒体消息: to=${to}`);
+      logger.info(`[WeChat] 已发送媒体消息: to=${target}`);
       return {
         channel: CHANNEL_ID,
         messageId: String(Date.now()),
